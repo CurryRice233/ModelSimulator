@@ -1,0 +1,25 @@
+{
+  "name": "LLM 预训练集群仿真器预设配置",
+  "default": {
+    "attn": 0.301, "exp": 0.066, "nExp": 2048, "layers": 61, "topk": 30, "act": 5.21,
+    "seqLen": 2048, "hidden": 7168, "moeHidden": 3072,
+    "fsdp": 2048, "ep": 128, "efsdp": 16, "cp": 1, "hbm": 96,
+    "intraBW": 100, "intraSize": 16, "superBW": 200, "superSize": 1024,
+    "interBW": 50, "fsdpDtype": 2,
+    "recompute": true, "swap": false
+  },
+  "presets": [
+    {
+      "id": "deepseek-v4-10t",
+      "name": "DeepSeekV4 10T(预估)",
+      "values": {
+        "attn": 0.301, "exp": 0.066, "nExp": 2048, "layers": 61, "topk": 30, "act": 5.21,
+        "seqLen": 2048, "hidden": 7168, "moeHidden": 3072,
+        "fsdp": 2048, "ep": 128, "efsdp": 16, "cp": 1, "hbm": 96,
+        "intraBW": 100, "intraSize": 16, "superBW": 200, "superSize": 1024,
+        "interBW": 50, "fsdpDtype": 2,
+        "recompute": true, "swap": false
+      }
+    }
+  ]
+}

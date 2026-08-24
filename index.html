@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM 预训练集群仿真器 · 显存建模</title>
+<style>
+  :root {
+    --ink: #1e293b;
+    --ink-2: #5b6b84;
+    --muted: #64748b;
+    --glass: rgba(255, 255, 255, .62);
+    --glass-strong: rgba(255, 255, 255, .78);
+    --glass-border: rgba(255, 255, 255, .9);
+    --line: #dbe4f0;
+    --shadow: 0 10px 34px rgba(15, 23, 42, .10);
+    --shadow-lg: 0 18px 48px rgba(15, 23, 42, .14);
+    --radius: 20px;
+    --sky: #0ea5e9;
+    --violet: #8b5cf6;
+    --teal: #10b981;
+    --orange: #f97316;
+    --pink: #ec4899;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, "Menlo", monospace;
+    --c-w: #0ea5e9;  /* 权重 */
+    --c-g: #8b5cf6;  /* 梯度 */
+    --c-o: #10b981;  /* 优化器 */
+    --c-a: #f97316;  /* 动态激活 */
+    --c-p: #ec4899;  /* 预取权重 */
+    --c-t: #ef4444;  /* 临时梯度 */
+    --c-l: #84cc16;  /* Layer Input */
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: #eef4ff; }
+  body {
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    background:
+      radial-gradient(1100px 620px at 10% -10%, #bae6fd 0%, transparent 55%),
+      radial-gradient(940px 680px at 98% 12%, #fbcfe8 0%, transparent 55%),
+      radial-gradient(1100px 820px at 50% 115%, #fef08a 0%, transparent 58%),
+      linear-gradient(135deg, #e0f2fe 0%, #fdf4ff 48%, #fffbeb 100%);
+    background-attachment: fixed;
+  }
+
+  /* ---------- 背景流动光斑（玻璃拟态氛围） ---------- */
+  .blob { position: fixed; border-radius: 50%; filter: blur(70px); opacity: .5;
+          z-index: -1; animation: drift 15s ease-in-out infinite; pointer-events: none; }
+  .b1 { width: 360px; height: 360px; background: #7dd3fc; top: -90px; left: -70px; }
+  .b2 { width: 310px; height: 310px; background: #f9a8d4; top: 18%; right: -100px; animation-delay: -5s; }
+  .b3 { width: 400px; height: 400px; background: #fde68a; bottom: -140px; left: 24%; animation-delay: -9s; }
+  .b4 { width: 270px; height: 270px; background: #86efac; bottom: 8%; right: 28%; animation-delay: -2.5s; }
+  @keyframes drift {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(32px, -22px) scale(1.08); }
+  }
+
+  /* ---------- 右侧固定参数面板（参考 TrainingLogParser 的 rightPanel） ---------- */
+  #panel-resizer {
+    position: fixed; top: 0; bottom: 0; width: 14px;
+    cursor: col-resize; z-index: 12; touch-action: none;
+  }
+  #panel-resizer::after {
+    content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 2px;
+    background: transparent; border-radius: 2px;
+    transition: background .15s, box-shadow .15s;
+  }
+  #panel-resizer:hover::after, body.resizing #panel-resizer::after {
+    background: rgba(14, 165, 233, .55);
+    box-shadow: 0 0 6px rgba(14, 165, 233, .45);
+  }
+  body.resizing { cursor: col-resize; user-select: none; }
+  @media (max-width: 1080px) { #panel-resizer { display: none; } }
+  #rightPanel {
+    position: fixed; top: 0; right: 0; z-index: 10;
+    width: 400px; height: 100vh; overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 26px 24px 40px;
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(24px) saturate(1.5);
+    backdrop-filter: blur(24px) saturate(1.5);
+    border-left: 1px solid var(--glass-border);
+    border-top-left-radius: var(--radius);
+    border-bottom-left-radius: var(--radius);
+    box-shadow: -20px 0 50px rgba(15, 23, 42, .12);
+  }
+  #rightPanel::-webkit-scrollbar { width: 7px; }
+  #rightPanel::-webkit-scrollbar-track { background: transparent; }
+  #rightPanel::-webkit-scrollbar-thumb { background: #c3d2e8; border-radius: 4px; }
+
+  .panelTitle {
+    font-size: 17px; font-weight: 800; color: var(--ink);
+    padding-bottom: 13px; margin-bottom: 6px;
+    border-bottom: 2px solid rgba(14, 165, 233, .25);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-section { margin-top: 20px; }
+  .panel-section h3 {
+    font-size: 13.5px; font-weight: 700; color: var(--violet);
+    letter-spacing: .3px; margin-bottom: 11px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .panel-section h3 .tl-note {
+    font-size: 11px; font-weight: 400; color: #94a3b8; margin-left: auto;
+  }
+  .cfg-label { display: block; font-size: 12px; color: var(--ink-2); font-weight: 600; margin-bottom: 7px; }
+  select#preset {
+    width: 100%; appearance: none; -webkit-appearance: none;
+    background: rgba(255,255,255,.75)
+      url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")
+      no-repeat right 12px center;
+    border: 1.5px solid var(--line); border-radius: 10px; color: var(--ink);
+    padding: 9px 32px 9px 10px; font-size: 13.5px; font-weight: 600;
+    outline: none; cursor: pointer;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  select#preset:focus { border-color: var(--sky); box-shadow: 0 0 0 3.5px rgba(14,165,233,.18); }
+  .cfg-btns { display: flex; gap: 10px; margin-top: 11px; }
+  .btn-soft {
+    flex: 1; background: rgba(255,255,255,.75); color: #0369a1;
+    border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 8px 6px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+    box-shadow: none; transition: background .15s, border-color .15s, transform .12s;
+  }
+  .btn-soft:hover { background: #fff; border-color: var(--sky); transform: translateY(-1px); filter: none; }
+  .cfg-msg { margin-top: 10px; font-size: 12px; min-height: 16px; color: var(--ink-2); }
+  .cfg-msg.ok { color: #059669; font-weight: 700; }
+  .cfg-msg.err { color: #dc2626; font-weight: 700; }
+
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+  .field label .note { color: #94a3b8; font-size: 11px; font-weight: 400; }
+  .unitbox { position: relative; }
+  .unitbox input {
+    width: 100%; background: rgba(255,255,255,.75); color: var(--ink);
+    border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 8px 44px 8px 10px; font-size: 14px;
+    font-family: var(--mono); outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  .unitbox input:focus {
+    border-color: var(--sky);
+    box-shadow: 0 0 0 3.5px rgba(14, 165, 233, .18);
+  }
+  .unitbox input.invalid { border-color: var(--red); box-shadow: 0 0 0 3.5px rgba(239, 68, 68, .14); }
+  .field select {
+    width: 100%; appearance: none; -webkit-appearance: none;
+    background: rgba(255,255,255,.75)
+      url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")
+      no-repeat right 12px center;
+    border: 1.5px solid var(--line); border-radius: 10px; color: var(--ink);
+    padding: 8px 32px 8px 10px; font-size: 13.5px; font-weight: 600;
+    outline: none; cursor: pointer; transition: border-color .15s, box-shadow .15s;
+  }
+  .field select:focus { border-color: var(--sky); box-shadow: 0 0 0 3.5px rgba(14,165,233,.18); }
+  .unitbox .unit {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    font-size: 11.5px; color: #8fa3c0; pointer-events: none;
+  }
+
+  /* 开关 */
+  .switch-row { display: flex; flex-direction: column; gap: 11px; margin-top: 14px; }
+  .switch {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    padding: 9px 12px; border: 1.5px solid var(--line);
+    border-radius: 12px; background: rgba(255,255,255,.6);
+    transition: background .15s, border-color .15s; user-select: none;
+  }
+  .switch:hover { background: rgba(255,255,255,.85); border-color: #c6d4ea; }
+  .switch input { display: none; }
+  .switch .track {
+    width: 38px; height: 21px; border-radius: 999px; background: #cbd5e1;
+    position: relative; flex: none; transition: background .18s, box-shadow .18s;
+  }
+  .switch .track::after {
+    content: ""; position: absolute; top: 2.5px; left: 3px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(15,23,42,.25);
+    transition: transform .18s;
+  }
+  .switch input:checked + .track {
+    background: linear-gradient(90deg, var(--sky), var(--violet));
+    box-shadow: 0 0 10px rgba(14,165,233,.35);
+  }
+  .switch input:checked + .track::after { transform: translateX(16px); }
+  .switch .switch-label { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .switch .switch-note { font-size: 11px; color: #94a3b8; margin-left: auto; }
+
+  .toolbar { display: flex; justify-content: flex-end; margin-top: 18px; }
+  button {
+    background: linear-gradient(90deg, var(--sky), var(--violet));
+    color: #fff; border: none; border-radius: 11px;
+    padding: 9px 20px; font-size: 13.5px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(14,165,233,.35);
+    transition: transform .12s, box-shadow .15s, filter .15s;
+  }
+  button:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 9px 22px rgba(139,92,246,.4); }
+
+  /* 通信耗时对比卡片：多模式并排 */
+  .comm-compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 6px; }
+  @media (max-width: 1500px) { .comm-compare { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 880px)  { .comm-compare { grid-template-columns: 1fr; } }
+  .comm-col {
+    background: rgba(255,255,255,.5); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 14px 10px;
+  }
+  .comm-col h3 {
+    font-size: 13.5px; font-weight: 800; color: var(--ink);
+    display: flex; align-items: center; gap: 7px;
+    padding-bottom: 9px; margin-bottom: 10px;
+    border-bottom: 2px solid rgba(14,165,233,.2);
+  }
+  .comm-col h3 small { font-weight: 400; font-size: 11px; color: #94a3b8; }
+  .comm-col .kpis { grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 10px; }
+  .comm-col .kpi { padding: 10px 12px; border-radius: 13px; }
+  .comm-col .kpi .k-value { font-size: 16px; }
+  .comm-col .kpi .k-sub { font-size: 10.5px; }
+  .comm-col .stack { margin: 12px 0 6px; }
+  .comm-col .pending-note {
+    font-size: 12.5px; color: #94a3b8; background: rgba(226,232,240,.4);
+    border: 1.5px dashed #c3d2e8; border-radius: 10px; padding: 12px;
+    line-height: 1.7;
+  }
+
+  .warn-banner {
+    display: none; margin-top: 14px; font-size: 12.5px; color: #b45309;
+    background: rgba(251,191,36,.25); border: 1.5px solid rgba(245,158,11,.45);
+    border-radius: 10px; padding: 9px 12px; font-weight: 600;
+  }
+  .warn-banner.show { display: block; }
+
+  /* ---------- 主内容 ---------- */
+  #centerPanel { margin-right: 430px; padding: 30px 30px 60px; }
+  @media (max-width: 1200px) {
+    #rightPanel { width: 350px; }
+    #centerPanel { margin-right: 380px; }
+  }
+
+  header { display: flex; align-items: flex-end; justify-content: space-between;
+           flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+  header h1 {
+    font-size: 26px; font-weight: 800; letter-spacing: .5px;
+    background: linear-gradient(90deg, #0284c7, #7c3aed 60%, #db2777);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header .sub { color: var(--ink-2); font-size: 13.5px; margin-top: 6px; }
+
+  /* KPI */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+  @media (max-width: 920px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  .kpi {
+    background: var(--glass-strong); border: 1px solid var(--glass-border);
+    border-radius: 18px; padding: 15px 17px; position: relative; overflow: hidden;
+    box-shadow: var(--shadow); transition: transform .15s, box-shadow .15s;
+  }
+  .kpi:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+  .kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, var(--sky), var(--violet)); }
+  .kpi:nth-child(2)::before { background: linear-gradient(180deg, var(--violet), var(--pink)); }
+  .kpi:nth-child(3)::before { background: linear-gradient(180deg, var(--teal), var(--sky)); }
+  .kpi:nth-child(4)::before { background: linear-gradient(180deg, var(--orange), var(--pink)); }
+  .kpi .k-label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+  .kpi .k-value { font-family: var(--mono); font-size: 21px; font-weight: 800;
+    margin-top: 4px; color: #0284c7; }
+  .kpi:nth-child(2) .k-value { color: #7c3aed; }
+  .kpi:nth-child(3) .k-value { color: #059669; }
+  .kpi:nth-child(4) .k-value { color: #ea580c; }
+  .kpi .k-sub { font-size: 11.5px; color: #7c8ba3; margin-top: 2px; }
+  .kpi .k-sub.ok { color: #059669; font-weight: 700; }
+  .kpi .k-sub.warn { color: #d97706; font-weight: 700; }
+  .kpi .k-sub.bad { color: #dc2626; font-weight: 700; }
+
+  /* 卡片 */
+  .card {
+    background: var(--glass); border: 1px solid var(--glass-border);
+    border-radius: var(--radius); padding: 22px 22px 18px;
+    box-shadow: var(--shadow); -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    backdrop-filter: blur(20px) saturate(1.4);
+  }
+  .card + .card { margin-top: 16px; }
+  .card h2 {
+    font-size: 15px; font-weight: 800; letter-spacing: .3px; color: var(--ink);
+    margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+  }
+  .card h2::before { content: ""; width: 5px; height: 16px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--sky), var(--violet)); }
+
+  /* 显存明细（集群/单卡并排） */
+  .mem-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 6px; }
+  @media (max-width: 1000px) { .mem-compare { grid-template-columns: 1fr; } }
+
+  .breakdown { list-style: none; margin-top: 6px; }
+  .breakdown li { padding: 9px 0; border-bottom: 1.5px dashed var(--line); }
+  .breakdown li:last-child { border-bottom: none; }
+  .row-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .row-top .name { color: var(--ink); font-weight: 600; flex: 1; }
+  .row-top .name small { color: #94a3b8; font-size: 11px; font-weight: 400; margin-left: 6px; }
+  .row-top .val { font-family: var(--mono); font-size: 13px; font-weight: 700; color: #0369a1; }
+  .row-top .pct { font-family: var(--mono); font-size: 11.5px; color: #8fa3c0; width: 52px; text-align: right; }
+  .dot { width: 10px; height: 10px; border-radius: 4px; flex: none; }
+  .bar { height: 8px; border-radius: 999px; background: #e6edf7; margin-top: 7px; overflow: hidden;
+         display: flex; }
+  .bar i { height: 100%; transition: width .25s ease; border-radius: 999px; }
+
+  .section-total {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding-top: 13px; margin-top: 6px; border-top: 2px solid var(--line);
+  }
+  .section-total .t-label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+  .section-total .t-value {
+    font-family: var(--mono); font-size: 17px; font-weight: 800; color: var(--sky);
+  }
+  /* 重点突出：单卡总显存 / 通信耗时 */
+  .section-total-lg .t-label { font-size: 15px; font-weight: 800; color: var(--ink); }
+  .section-total-lg .t-value { font-size: 26px; font-weight: 900; color: #0284c7; }
+  .kpi-lg .k-label { font-size: 13.5px; font-weight: 800; }
+  .kpi-lg .k-value { font-size: 23px; font-weight: 900; }
+
+  /* 堆叠条 */
+  .stack { height: 28px; border-radius: 10px; overflow: hidden; display: flex; margin: 15px 0 7px;
+          background: #e6edf7; border: 1.5px solid var(--line); }
+  .stack i { height: 100%; transition: width .25s ease; }
+  .stack-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--ink-2); }
+  .stack-legend span { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+
+  details.formulas { margin-top: 20px; }
+  details.formulas summary {
+    cursor: pointer; font-size: 13.5px; font-weight: 700; color: #0369a1;
+    padding: 10px 0; user-select: none; list-style: none;
+  }
+  details.formulas summary::-webkit-details-marker { display: none; }
+  details.formulas summary::before { content: "▸ "; }
+  details[open].formulas summary::before { content: "▾ "; }
+  details.formulas .f-body {
+    background: var(--glass-strong); border: 1px solid var(--glass-border);
+    border-radius: 14px; padding: 15px 17px; font-size: 12.5px; color: var(--ink-2);
+    box-shadow: var(--shadow);
+  }
+  details.formulas .f-body code {
+    font-family: var(--mono); color: var(--ink); background: #eef4ff;
+    display: block; padding: 7px 11px; border-radius: 8px; margin: 7px 0;
+    font-size: 12px; white-space: pre-wrap; border-left: 3px solid var(--sky);
+  }
+
+  footer { margin-top: 28px; font-size: 12px; color: #8fa3c0; text-align: center; }
+
+  /* 粘贴导入弹窗 */
+  .modal-mask {
+    display: none; position: fixed; inset: 0; z-index: 50;
+    background: rgba(15, 23, 42, .45);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-mask.show { display: flex; }
+  .modal-card {
+    background: var(--glass-strong); border: 1px solid var(--glass-border);
+    border-radius: 16px; padding: 18px; width: min(620px, 92vw);
+    box-shadow: var(--shadow-lg);
+  }
+  .modal-card h3 { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
+  .modal-card textarea {
+    width: 100%; height: 220px; font-family: var(--mono); font-size: 12px; line-height: 1.5;
+    color: var(--ink); background: rgba(255,255,255,.85);
+    border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 10px; resize: vertical; outline: none;
+  }
+  .modal-card textarea:focus {
+    border-color: var(--sky); box-shadow: 0 0 0 3.5px rgba(14,165,233,.18);
+  }
+  .modal-btns { display: flex; gap: 10px; margin-top: 12px; }
+  .modal-btns button { flex: 1; }
+  .modal-btns .btn-soft { background: rgba(226,232,240,.6); color: var(--ink-2); }
+
+  /* ---------- 响应式：小屏时参数面板转为顶部卡片 ---------- */
+  @media (max-width: 1080px) {
+    #centerPanel { margin-right: 0; padding: 22px 16px 50px; }
+    #rightPanel {
+      position: static; width: auto; height: auto; max-height: none;
+      margin: 16px 16px 0; border: 1px solid var(--glass-border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- 背景流动光斑 -->
+<i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><i class="blob b4"></i>
+
+<!-- ============ 右侧参数面板（固定） ============ -->
+<aside id="rightPanel">
+  <p class="panelTitle">🔧 参数配置</p>
+
+  <section class="panel-section">
+    <h3>💾 配置管理</h3>
+    <label class="cfg-label" for="preset">预设 / 当前配置</label>
+    <select id="preset">
+      <option value="custom" selected>✏️ 自定义配置</option>
+      <option value="deepseek-v4-10t">★ DeepSeekV4 10T(预估)</option>
+    </select>
+    <div class="cfg-btns">
+      <button type="button" id="btn-export" class="btn-soft">📤 导出配置</button>
+      <button type="button" id="btn-import" class="btn-soft">📥 文件导入</button>
+      <button type="button" id="btn-paste" class="btn-soft">📋 粘贴导入</button>
+      <input type="file" id="import-file" accept=".json,application/json" hidden>
+    </div>
+    <div class="cfg-msg" id="cfg-msg"></div>
+  </section>
+
+  <section class="panel-section">
+    <h3>🧠 模型参数 <span class="tl-note">FP32：1 B ≈ 3.725 GB</span></h3>
+    <div class="field-grid">
+      <div class="field">
+        <label for="attn">单层 Attention 参数量</label>
+        <div class="unitbox"><input id="attn" type="number" step="any" min="0" value="1.0"><span class="unit">B</span></div>
+      </div>
+      <div class="field">
+        <label for="exp">单个 MoE 专家参数量</label>
+        <div class="unitbox"><input id="exp" type="number" step="any" min="0" value="0.15"><span class="unit">B</span></div>
+      </div>
+      <div class="field">
+        <label for="nExp">专家数量</label>
+        <div class="unitbox"><input id="nExp" type="number" step="1" min="1" value="160"><span class="unit">个</span></div>
+      </div>
+      <div class="field">
+        <label for="layers">层数</label>
+        <div class="unitbox"><input id="layers" type="number" step="1" min="1" value="61"><span class="unit">层</span></div>
+      </div>
+      <div class="field">
+        <label for="seqLen">序列长度</label>
+        <div class="unitbox"><input id="seqLen" type="number" step="1" min="0" value="2048"><span class="unit">tok</span></div>
+      </div>
+      <div class="field">
+        <label for="hidden">Hidden Size</label>
+        <div class="unitbox"><input id="hidden" type="number" step="1" min="0" value="7168"><span class="unit"></span></div>
+      </div>
+      <div class="field">
+        <label for="moeHidden">MoE Hidden Size</label>
+        <div class="unitbox"><input id="moeHidden" type="number" step="1" min="0" value="7168"><span class="unit"></span></div>
+      </div>
+      <div class="field">
+        <label for="topk">TopK <span class="note">（EP Alltoall 用）</span></label>
+        <div class="unitbox"><input id="topk" type="number" step="1" min="0" value="30"><span class="unit"></span></div>
+      </div>
+      <div class="field">
+        <label for="act">单层动态激活</label>
+        <div class="unitbox"><input id="act" type="number" step="any" min="0" value="5.21"><span class="unit">GB</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel-section">
+    <h3>🖥 并行方式</h3>
+    <div class="field-grid">
+      <div class="field">
+        <label for="fsdp">FSDP <span class="note">（Attention 权重切分度）</span></label>
+        <div class="unitbox"><input id="fsdp" type="number" step="1" min="1" value="8"><span class="unit">×</span></div>
+      </div>
+      <div class="field">
+        <label for="ep">EP <span class="note">（专家并行）</span></label>
+        <div class="unitbox"><input id="ep" type="number" step="1" min="1" value="8"><span class="unit">×</span></div>
+      </div>
+      <div class="field">
+        <label for="efsdp">EFSDP <span class="note">（专家 FSDP）</span></label>
+        <div class="unitbox"><input id="efsdp" type="number" step="1" min="1" value="2"><span class="unit">×</span></div>
+      </div>
+      <div class="field">
+        <label for="cp">CP <span class="note">（上下文并行）</span></label>
+        <div class="unitbox"><input id="cp" type="number" step="1" min="1" value="4"><span class="unit">×</span></div>
+      </div>
+      <div class="field">
+        <label for="hbm">单卡 HBM 容量 <span class="note">（仅用于占用率展示）</span></label>
+        <div class="unitbox"><input id="hbm" type="number" step="any" min="0" value="80"><span class="unit">GB</span></div>
+      </div>
+    </div>
+
+    <div class="switch-row">
+      <label class="switch">
+        <input type="checkbox" id="recompute" checked>
+        <span class="track"></span>
+        <span class="switch-label">Recompute（激活重计算）</span>
+      </label>
+      <label class="switch">
+        <input type="checkbox" id="swap">
+        <span class="track"></span>
+        <span class="switch-label">SwapOptimizer</span>
+        <span class="switch-note">开启后单卡优化器 = 0</span>
+      </label>
+    </div>
+  </section>
+
+  <section class="panel-section">
+    <h3>🔗 通信网络（三层拓扑）</h3>
+    <div class="field-grid">
+      <div class="field">
+        <label for="intraBW">机内带宽</label>
+        <div class="unitbox"><input id="intraBW" type="number" step="any" min="0" value="750"><span class="unit">GB/s</span></div>
+      </div>
+      <div class="field">
+        <label for="intraSize">机内大小</label>
+        <div class="unitbox"><input id="intraSize" type="number" step="1" min="1" value="16"><span class="unit">卡</span></div>
+      </div>
+      <div class="field">
+        <label for="superBW">超节点带宽</label>
+        <div class="unitbox"><input id="superBW" type="number" step="any" min="0" value="200"><span class="unit">GB/s</span></div>
+      </div>
+      <div class="field">
+        <label for="superSize">超节点大小</label>
+        <div class="unitbox"><input id="superSize" type="number" step="1" min="1" value="1024"><span class="unit">卡</span></div>
+      </div>
+      <div class="field">
+        <label for="interBW">超节点间带宽</label>
+        <div class="unitbox"><input id="interBW" type="number" step="any" min="0" value="50"><span class="unit">GB/s</span></div>
+      </div>
+      <div class="field">
+        <label for="fsdpDtype">FSDP 通信 dtype</label>
+        <select id="fsdpDtype">
+          <option value="4">FP32（4 B）</option>
+          <option value="2" selected>BF16（2 B）</option>
+          <option value="1">FP8（1 B）</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <button id="reset" type="button">↺ 重置为示例参数</button>
+  </div>
+  <div class="warn-banner" id="warn"></div>
+</aside>
+
+<!-- 右侧参数面板拖拽调宽手柄（独立于面板滚动内容） -->
+<div id="panel-resizer" title="拖拽调整面板宽度"></div>
+
+<!-- ============ 中央内容区 ============ -->
+<main id="centerPanel">
+  <header>
+    <div>
+      <h1>LLM 预训练集群仿真器</h1>
+      <div class="sub">大模型预训练集群仿真建模 · 当前模块：显存建模（Memory Modeling）— 输入实时计算，无需刷新</div>
+    </div>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k-label" style="white-space:nowrap;">单个完整 DP 域卡数 MAX(FSDP×CP, EP×EFSDP×CP)</div>
+      <div class="k-value" id="kpi-cards">—</div>
+      <div class="k-sub" id="kpi-cards-sub"></div></div>
+    <div class="kpi"><div class="k-label">总模型权重 FP32（全集群）</div>
+      <div class="k-value" id="kpi-totalw">—</div>
+      <div class="k-sub" id="kpi-totalw-sub">FP32 模型权重</div></div>
+    <div class="kpi"><div class="k-label">单卡模型权重 FP32</div>
+      <div class="k-value" id="kpi-cardw">—</div>
+      <div class="k-sub" id="kpi-cardw-sub"></div></div>
+    <div class="kpi"><div class="k-label">单卡总显存</div>
+      <div class="k-value" id="kpi-total">—</div>
+      <div class="k-sub" id="kpi-hbm"></div></div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h2>💾 显存明细</h2>
+    <div class="mem-compare">
+      <div class="comm-col">
+        <h3>🌐 集群维度显存 <small>全集群合计</small></h3>
+        <ul class="breakdown" id="cluster-list"></ul>
+        <div class="stack" id="cluster-stack"></div>
+        <div class="stack-legend" id="cluster-legend"></div>
+        <div class="section-total">
+          <span class="t-label">集群静态显存（权重+梯度+优化器）</span>
+          <span class="t-value" id="cluster-static">—</span>
+        </div>
+        <div class="section-total" style="border-top:none;padding-top:6px;">
+          <span class="t-label">集群总显存需求（静态 + 动态激活）</span>
+          <span class="t-value" id="cluster-total">—</span>
+        </div>
+      </div>
+
+      <div class="comm-col">
+        <h3>🖥 单卡维度显存 <small>单卡口径（含预取 / 临时梯度）</small></h3>
+        <ul class="breakdown" id="card-list"></ul>
+        <div class="stack" id="card-stack"></div>
+        <div class="stack-legend" id="card-legend"></div>
+        <div class="section-total section-total-lg">
+          <span class="t-label">单卡总显存（七项合计）</span>
+          <span class="t-value" id="card-total">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px;">
+    <h2>📡 通信耗时对比</h2>
+    <div class="comm-compare">
+      <!-- 列 A：EP Alltoall（均衡） -->
+      <div class="comm-col">
+        <h3>⚡ EP Alltoall <small>通信域 = EP</small></h3>
+        <div class="kpis">
+          <div class="kpi"><div class="k-label">总接受数据</div>
+            <div class="k-value" id="comm-a-total">—</div>
+            <div class="k-sub" id="comm-a-total-sub">seq × MoE hidden × 2B × topk / 1024² / 通信域 × (通信域−1)</div></div>
+          <div class="kpi"><div class="k-label">每份数据</div>
+            <div class="k-value" id="comm-a-piece">—</div>
+            <div class="k-sub" id="comm-a-piece-sub">总接受数据 / (通信域 − 1)</div></div>
+          <div class="kpi"><div class="k-label">算法带宽</div>
+            <div class="k-value" id="comm-a-bw">—</div>
+            <div class="k-sub" id="comm-a-bw-sub">总流量 / max(机内+超节点内, 超节点间)耗时</div></div>
+          <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
+            <div class="k-value" id="comm-a-time">—</div>
+            <div class="k-sub" id="comm-a-time-sub">总接受数据(GB) / 算法带宽</div></div>
+        </div>
+        <ul class="breakdown" id="comm-a-tiers"></ul>
+        <div class="stack" id="comm-a-stack"></div>
+        <div class="stack-legend" id="comm-a-legend"></div>
+        <div class="section-total">
+          <span class="t-label">瓶颈层（耗时最大）</span>
+          <span class="t-value" id="comm-a-bottleneck">—</span>
+        </div>
+        <div class="warn-banner" id="comm-a-warn"></div>
+      </div>
+
+      <!-- 列 F：FSDP Allgather/ReduceScatter（分层） -->
+      <div class="comm-col">
+        <h3>🔄 FSDP Allgather/RS <small>通信域 = FSDP</small></h3>
+        <div class="kpis">
+          <div class="kpi"><div class="k-label">总接受数据</div>
+            <div class="k-value" id="comm-f-total">—</div>
+            <div class="k-sub" id="comm-f-total-sub">单层Attn(B) × 10⁹ × dtype / 1024² / 通信域 × (通信域−1)</div></div>
+          <div class="kpi"><div class="k-label">每份数据</div>
+            <div class="k-value" id="comm-f-piece">—</div>
+            <div class="k-sub" id="comm-f-piece-sub">总接受数据 / (通信域 − 1)</div></div>
+          <div class="kpi"><div class="k-label">算法带宽</div>
+            <div class="k-value" id="comm-f-bw">—</div>
+            <div class="k-sub" id="comm-f-bw-sub">总流量 / max(机内+超节点内, 超节点间)耗时</div></div>
+          <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
+            <div class="k-value" id="comm-f-time">—</div>
+            <div class="k-sub" id="comm-f-time-sub">总接受数据(GB) / 算法带宽</div></div>
+        </div>
+        <ul class="breakdown" id="comm-f-tiers"></ul>
+        <div class="stack" id="comm-f-stack"></div>
+        <div class="stack-legend" id="comm-f-legend"></div>
+        <div class="section-total">
+          <span class="t-label">瓶颈层（耗时最大）</span>
+          <span class="t-value" id="comm-f-bottleneck">—</span>
+        </div>
+        <div class="warn-banner" id="comm-f-warn"></div>
+      </div>
+
+      <!-- 列 E：EFSDP Allgather/ReduceScatter（分层） -->
+      <div class="comm-col">
+        <h3>🔄 EFSDP Allgather/RS <small>通信域 = EFSDP</small></h3>
+        <div class="kpis">
+          <div class="kpi"><div class="k-label">总接受数据</div>
+            <div class="k-value" id="comm-e-total">—</div>
+            <div class="k-sub" id="comm-e-total-sub">单层MoE(B)/EP × 10⁹ × dtype / 1024² / 通信域 × (通信域−1)</div></div>
+          <div class="kpi"><div class="k-label">每份数据</div>
+            <div class="k-value" id="comm-e-piece">—</div>
+            <div class="k-sub" id="comm-e-piece-sub">总接受数据 / (通信域 − 1)</div></div>
+          <div class="kpi"><div class="k-label">算法带宽</div>
+            <div class="k-value" id="comm-e-bw">—</div>
+            <div class="k-sub" id="comm-e-bw-sub">总流量 / max(机内+超节点内, 超节点间)耗时</div></div>
+          <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
+            <div class="k-value" id="comm-e-time">—</div>
+            <div class="k-sub" id="comm-e-time-sub">总接受数据(GB) / 算法带宽</div></div>
+        </div>
+        <ul class="breakdown" id="comm-e-tiers"></ul>
+        <div class="stack" id="comm-e-stack"></div>
+        <div class="stack-legend" id="comm-e-legend"></div>
+        <div class="section-total">
+          <span class="t-label">瓶颈层（耗时最大）</span>
+          <span class="t-value" id="comm-e-bottleneck">—</span>
+        </div>
+        <div class="warn-banner" id="comm-e-warn"></div>
+      </div>
+    </div>
+  </div>
+
+  <details class="formulas">
+    <summary>📐 查看全部计算公式（当前版本）</summary>
+    <div class="f-body">
+      约定：参数量单位 B（十亿参数），FP32 换算系数 GB/B = 4 × 10⁹ / 1024³ ≈ 3.7253
+      （即 B × 10⁹ × 4 / 1024³ = GB）；动态激活输入单位即 GB，无需换算。公式逐条对应需求文档 v0.1。
+      <code>单个完整 DP 域卡数 = MAX(FSDP × CP, EP × EFSDP × CP)</code>
+      <code>总模型权重 FP32 (GB) = (单层 Attention 参数量 + 单个专家参数量 × 专家数量) × 层数 × (4×10⁹/1024³)</code>
+      <code>总模型梯度 FP32 (GB) = 总模型权重 FP32 (GB)
+总优化器 2×FP32 (GB) = 总模型权重 FP32 (GB) × 2（集群口径不随 SwapOptimizer 变化）
+总静态显存 (GB) = 权重 + 梯度 + 优化器</code>
+      <code>总动态激活 (GB) = 单层动态激活 / CP × 层数</code>
+      <code>单卡模型权重 FP32 (GB) = (单层 Attention 参数量 / FSDP + 单个专家参数量 × 专家数量) × 层数 / (EP × EFSDP) × (4×10⁹/1024³)</code>
+      <code>单卡模型梯度 FP32 (GB) = 单卡模型权重 FP32 (GB)
+单卡优化器 2×FP32 (GB) = 单卡模型权重 FP32 (GB) × 2；SwapOptimizer=True 时 = 0（优化器交换至 Host，不占显存）</code>
+      <code>单卡动态激活 (GB) = Recompute ? 总动态激活 / 层数 : 总动态激活</code>
+      <code>单层预取权重 FP32 (GB) = 总模型权重 / 层数 / EP
+单层临时梯度 FP32 (GB) = 单层预取权重 FP32 (GB)
+Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 1024³</code>
+      <code>单卡总显存 (GB) = 权重 + 梯度 + 优化器 + 动态激活 + Layer Input + 预取权重 + 临时梯度</code>
+      <code>EP Alltoall（均衡）：
+通信域 = EP
+总接受数据 (MB) = 序列长度 × MoE Hidden Size × 2(BF16) × TopK / 1024² / 通信域 × (通信域 − 1)
+每份数据 (MB) = 总接受数据 / (通信域 − 1)
+总流量 = 通信域 − 1
+机内流量 = MIN(总流量, 机内大小 − 1)
+超节点内流量 = MAX(MIN(通信域, 超节点大小) − 机内大小, 0)
+超节点间流量 = MAX(通信域 − 超节点大小, 0)
+各层占比 = 各层流量 / 总流量
+算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽)
+通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
+      <code>FSDP Allgather / ReduceScatter（分层）：
+通信域 = FSDP
+总接受数据 (MB) = 单层 Attention 参数量 × 10⁹ × dtype 字节 / 1024² / 通信域 × (通信域 − 1)
+每份数据 (MB) = 总接受数据 / (通信域 − 1)
+总流量 = 通信域 − 1
+机内流量 = 总流量 − 超节点内流量 − 超节点间流量
+超节点内流量 = MAX(MIN(通信域, 超节点大小) / 机内大小 − 1, 0) × (超节点间流量 + 1)
+超节点间流量 = MAX(通信域 / 超节点大小 − 1, 0)
+各层占比 = 各层流量 / 总流量
+算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽)
+通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
+      <code>EFSDP Allgather / ReduceScatter（分层）：
+通信域 = EFSDP
+总接受数据 (MB) = 单层 MoE 参数量 / EP × 10⁹ × dtype 字节 / 1024² / 通信域 × (通信域 − 1)
+  （单层 MoE 参数量 = 单个专家参数量 × 专家数量；÷EP：EP 子域内只含 1/EP 的专家权重）
+每份数据 (MB) = 总接受数据 / (通信域 − 1)
+总流量 = 通信域 − 1
+有效层级大小：超节点 = MAX(超节点大小/EP, 1)，机内 = MAX(机内大小/EP, 1)
+机内流量 = 总流量 − 超节点内流量 − 超节点间流量
+超节点内流量 = MAX(MIN(通信域, 有效超节点) / 有效机内 − 1, 0) × (超节点间流量 + 1)
+超节点间流量 = MAX(通信域 / 有效超节点 − 1, 0)
+各层占比 = 各层流量 / 总流量
+算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽)
+通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
+    </div>
+  </details>
+
+  <footer>LLM 预训练集群仿真器 · 显存建模模块 · 修改输入后结果实时刷新</footer>
+</main>
+
+<!-- 粘贴导入配置弹窗 -->
+<div id="paste-modal" class="modal-mask">
+  <div class="modal-card">
+    <h3>📋 粘贴配置 JSON</h3>
+    <textarea id="paste-input" spellcheck="false" placeholder='{"name":"配置名","model":{...},"parallel":{...},"network":{...},"options":{...}}'></textarea>
+    <div class="modal-btns">
+      <button type="button" class="btn-soft" id="btn-paste-cancel">取消</button>
+      <button type="button" id="btn-paste-ok">导入</button>
+    </div>
+    <div class="cfg-msg" id="paste-msg"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var DEFAULT = {
+    attn: 0.301, exp: 0.066, nExp: 2048, layers: 61, topk: 30, act: 5.21,
+    seqLen: 2048, hidden: 7168, moeHidden: 3072,
+    fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
+    intraBW: 100, intraSize: 16, superBW: 200, superSize: 1024,
+    interBW: 50, fsdpDtype: 2,
+    recompute: true, swap: false
+  };
+
+  /* 预设配置 */
+  var PRESETS = [
+    { id: "deepseek-v4-10t", name: "DeepSeekV4 10T(预估)",
+      values: {
+        attn: 0.301, exp: 0.066, nExp: 2048, layers: 61, topk: 30, act: 5.21,
+        seqLen: 2048, hidden: 7168, moeHidden: 3072,
+        fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
+        intraBW: 100, intraSize: 16, superBW: 200, superSize: 1024,
+        interBW: 50, fsdpDtype: 2,
+        recompute: true, swap: false
+      } }
+  ];
+
+  /* 参数量(B) → FP32 显存(GB)：B × 10^9 × 字节数(FP32=4) / 1024^3 ≈ B × 3.7253 */
+  var BYTES_PER_PARAM = 4; /* FP32，后续可扩展 BF16(2)/FP8(1) */
+  var GB_PER_B = BYTES_PER_PARAM * 1e9 / Math.pow(1024, 3); /* ≈ 3.7252903 */
+
+  /* Layer Input 按激活精度计（默认 BF16 = 2 字节/元素） */
+  var ACTIVATION_BYTES = 2;
+
+  /* EP Alltoall 载荷 dtype（BF16 = 2 字节） */
+  var MOE_DTYPE_BYTES = 2;
+
+  var COLORS = { w: "#0ea5e9", g: "#8b5cf6", o: "#10b981", a: "#f97316", p: "#ec4899", t: "#ef4444", l: "#84cc16",
+                 i: "#22d3ee", s: "#a78bfa", e: "#fb7185" };
+
+  /* ---------- helpers ---------- */
+  function num(id) { var v = parseFloat($(id).value); return isFinite(v) ? v : 0; }
+  function int(id) { var v = parseInt($(id).value, 10); return isFinite(v) ? v : 0; }
+  function checked(id) { return $(id).checked; }
+
+  function fmt(n, d, m) {
+    d = d === undefined ? 2 : d;
+    if (!isFinite(n)) return "—";
+    return n.toLocaleString("en-US",
+      { minimumFractionDigits: (m === undefined ? 0 : m), maximumFractionDigits: d });
+  }
+  /* 主单位 GB，≥1024 时附带 TB */
+  function fmtGB(n, d) {
+    if (!isFinite(n)) return "—";
+    var s = fmt(n, d) + " GB";
+    if (Math.abs(n) >= 1024) s += "（" + fmt(n / 1024, 2) + " TB）";
+    return s;
+  }
+  /* 极小数值（<0.01）用科学计数法展示 */
+  function fmtSmall(n) {
+    if (!isFinite(n)) return "—";
+    if (n === 0) return "0";
+    if (Math.abs(n) >= 0.01) return fmt(n, 3);
+    return n.toExponential(2);
+  }
+  /* 通信耗时：固定保留小数点后 3 位 */
+  function fmtTime(sec) {
+    if (!isFinite(sec)) return "—";
+    if (sec < 1) return fmt(sec * 1000, 3, 3) + " ms";
+    if (sec < 120) return fmt(sec, 3, 3) + " s";
+    return fmt(sec / 60, 3, 3) + " min";
+  }
+
+  /* ---------- compute ---------- */
+  function compute() {
+    var attnB  = num("attn"),   expB = num("exp"), nExp = int("nExp"),
+        layers = int("layers"), act  = num("act"), topk = int("topk");
+    var seqLen = Math.max(0, int("seqLen")), hidden = Math.max(0, int("hidden"));
+    var moeHidden = Math.max(0, int("moeHidden"));
+    var fsdp = int("fsdp"), ep = int("ep"), efsdp = int("efsdp"),
+        cp   = int("cp"),   hbm = num("hbm");
+    var intraBW = num("intraBW"), intraSize = Math.max(1, int("intraSize"));
+    var superBW = num("superBW"), superSize = Math.max(1, int("superSize"));
+    var interBW = num("interBW");
+    var recompute = checked("recompute"), swap = checked("swap");
+
+    /* ----- 集群维度 ----- */
+    /* 单个完整 DP 域卡数 = MAX(FSDP × CP, EP × EFSDP × CP) */
+    var cards     = Math.max(fsdp * cp, ep * efsdp * cp);
+    var expertsPB = expB * nExp;                    /* 单层 MoE 全部专家参数量 (B) */
+    var layerWB   = attnB + expertsPB;              /* 单层总参数量 (B) */
+    var totalParamsB = layerWB * layers;            /* 总参数量 (B) */
+    var totalW    = totalParamsB * GB_PER_B;        /* 总权重 FP32 (GB) */
+    var totalG    = totalW;
+    var totalO    = totalW * 2;          /* 集群口径不随 SwapOptimizer 变化 */
+    var totalStatic = totalW + totalG + totalO;
+    var totalAct  = act / cp * layers;              /* 动态激活输入已是 GB，无需换算 */
+    var clusterTotal = totalStatic + totalAct;
+
+    /* ----- 单卡维度 ----- */
+    /* 单卡权重 = (单层Attn/FSDP + 单专家×专家数) × 层数 / (EP×EFSDP) × 换算系数 */
+    var cardW = (attnB / fsdp + expertsPB) * layers / (ep * efsdp) * GB_PER_B;
+    var cardG = cardW;
+    var cardO = swap ? 0 : cardW * 2;               /* SwapOptimizer=True：交换出卡 → 0 */
+    var cardAct = recompute ? totalAct / layers : totalAct;
+    var prefetchW = totalW / layers / ep;
+    var tempG     = prefetchW;
+    /* Layer Input(层输入) = 序列长度 × hidden size × 层数 × 激活字节数 / 1024³ */
+    var layerInputGB = seqLen * hidden * layers * ACTIVATION_BYTES / Math.pow(1024, 3);
+    var cardTotal = cardW + cardG + cardO + cardAct + prefetchW + tempG + layerInputGB;
+
+    /* ---------- 通信：EP Alltoall / FSDP Allgather-RS 并排渲染 ---------- */
+    renderCommAll();
+
+    /* ---------- 校验 ---------- */
+    var problems = [];
+    if (fsdp < 1)                                problems.push("FSDP 必须 ≥ 1");
+    if (ep < 1 || efsdp < 1 || cp < 1)           problems.push("EP / EFSDP / CP 必须 ≥ 1");
+    if (layers < 1)                              problems.push("层数必须 ≥ 1");
+    if (nExp < 1)                                problems.push("专家数量必须 ≥ 1");
+    var warnEl = $("warn");
+    if (problems.length) {
+      warnEl.textContent = "参数校验： " + problems.join("；") + "。请修正后查看结果。";
+      warnEl.classList.add("show");
+      ["fsdp", "ep", "efsdp", "cp", "layers", "nExp"].forEach(function (id) {
+        var v = parseInt($(id).value, 10);
+        $(id).classList.toggle("invalid", !isFinite(v) || v < 1);
+      });
+    } else {
+      warnEl.classList.remove("show");
+      ["fsdp", "ep", "efsdp", "cp", "layers", "nExp"].forEach(function (id) {
+        $(id).classList.remove("invalid");
+      });
+    }
+
+    /* ---------- KPI ---------- */
+    $("kpi-cards").textContent = fmt(cards, 0) + " 卡";
+    $("kpi-cards-sub").textContent = "FSDP×CP = " + fmt(fsdp * cp, 0) + " · EP×EFSDP×CP = " + fmt(ep * efsdp * cp, 0) + "，取最大";
+    $("kpi-totalw").textContent = fmtGB(totalW);
+    $("kpi-totalw-sub").textContent = "总参数量 " + fmt(totalParamsB, 1) + " B（" + fmt(layerWB, 2) + " B/层）· FP32 1B≈3.725GB";
+    $("kpi-cardw").textContent = fmtGB(cardW);
+    $("kpi-cardw-sub").textContent = "(单层Attn/FSDP + 全量专家) × 层数 / (EP×EFSDP)";
+    $("kpi-total").textContent = fmtGB(cardTotal);
+
+    var hbmEl = $("kpi-hbm");
+    if (hbm > 0) {
+      var util = cardTotal / hbm * 100;
+      hbmEl.textContent = "占 " + fmt(hbm, 0) + " GB HBM：" + fmt(util, 1) + "%";
+      hbmEl.className = "k-sub " + (util > 100 ? "bad" : (util > 90 ? "warn" : "ok"));
+    } else {
+      hbmEl.textContent = "未设置 HBM 容量";
+      hbmEl.className = "k-sub";
+    }
+
+    /* ---------- 集群清单 ---------- */
+    var clusterRows = [
+      { key: "w", name: "模型权重 FP32",    note: "总模型权重",  v: totalW },
+      { key: "g", name: "模型梯度 FP32",    note: "= 权重",      v: totalG },
+      { key: "o", name: "优化器 2×FP32",    note: "= 权重 × 2",  v: totalO },
+      { key: "a", name: "动态激活",          note: "激活/CP×层数", v: totalAct }
+    ];
+    renderList("cluster-list", clusterRows, clusterTotal);
+    renderStack("cluster-stack", "cluster-legend", clusterRows, clusterTotal);
+    $("cluster-static").textContent = fmtGB(totalStatic);
+    $("cluster-total").textContent = fmtGB(clusterTotal);
+
+    /* ---------- 单卡清单 ---------- */
+    var cardRows = [
+      { key: "w", name: "模型权重 FP32",    note: "单卡",          v: cardW },
+      { key: "g", name: "模型梯度 FP32",    note: "= 单卡权重",    v: cardG },
+      { key: "o", name: "优化器 2×FP32",    note: swap ? "SwapOptimizer：交换出卡，不占显存" : "= 单卡权重 × 2", v: cardO },
+      { key: "a", name: "动态激活",          note: recompute ? "Recompute：总激活/层数" : "无 Recompute：总激活", v: cardAct },
+      { key: "l", name: "Layer Input(层输入)", note: "seq×hidden×层数×2B/1024³", v: layerInputGB },
+      { key: "p", name: "单层预取权重 FP32", note: "总权重/层数/EP", v: prefetchW },
+      { key: "t", name: "单层临时梯度 FP32", note: "= 预取权重",    v: tempG }
+    ];
+    renderList("card-list", cardRows, cardTotal);
+    renderStack("card-stack", "card-legend", cardRows, cardTotal);
+    $("card-total").textContent = fmtGB(cardTotal);
+
+    /* 通信渲染已在 renderCommAll() 中完成（EP / FSDP / EFSDP 三列并排） */
+  }
+
+  /* ---------- 通信核心计算 ---------- */
+  /* mode: "ep"（EP Alltoall 均衡）| "fsdp"（FSDP Allgather/RS 分层）| "efsdp"（EFSDP Allgather/RS 分层） */
+  function computeComm(mode) {
+    var kind = mode === "ep" ? 0 : (mode === "fsdp" ? 1 : 2);   /* 0=Alltoall, 1=FSDP AG/RS, 2=EFSDP AG/RS */
+    var dec  = kind > 0 ? 2 : 0;                                /* 分层 Allgather 份数可含小数 */
+    var domain = Math.max(0, kind === 0 ? int("ep") : (kind === 1 ? int("fsdp") : int("efsdp")));
+    var fsdpDtype = Math.max(0, num("fsdpDtype"));
+    var epDiv = Math.max(1, int("ep"));        /* EFSDP：有效层级大小 = 物理大小 / EP */
+    var intraBW = num("intraBW"), intraSize = Math.max(1, int("intraSize"));
+    var superBW = num("superBW"), superSize = Math.max(1, int("superSize"));
+    var interBW = num("interBW");
+
+    /* 有效层级大小（FSDP 时即物理大小；EFSDP 时按 EP 子域折算） */
+    var sEff = (kind === 2) ? Math.max(superSize / epDiv, 1) : superSize;
+    var iEff = (kind === 2) ? Math.max(intraSize / epDiv, 1) : intraSize;
+
+    /* 数据量（MB）：通信域 ≤ 1 时无通信 */
+    var recvTotalMB = 0, pieceMB = 0;
+    if (domain > 1) {
+      if (kind === 0) {
+        recvTotalMB = Math.max(0, int("seqLen")) * Math.max(0, int("moeHidden")) * MOE_DTYPE_BYTES
+                    * Math.max(0, int("topk")) / 1024 / 1024 / domain * (domain - 1);
+      } else if (kind === 1) {
+        /* 单层 Attention 参数量(B) × 10⁹ × dtype / 1024² / 域 × (域−1) */
+        recvTotalMB = Math.max(0, num("attn")) * 1e9 * fsdpDtype / 1024 / 1024 / domain * (domain - 1);
+      } else {
+        /* 单层 MoE 参数量 ÷ EP（EP 子域内只含本域的专家权重）× 10⁹ × dtype */
+        recvTotalMB = Math.max(0, num("exp")) * Math.max(0, int("nExp")) / epDiv * 1e9 * fsdpDtype
+                    / 1024 / 1024 / domain * (domain - 1);
+      }
+      pieceMB = recvTotalMB / (domain - 1);
+    }
+    var totalFlow = domain - 1;
+
+    /* 三层流量（data） */
+    var intraFlow, superFlow, interFlow;
+    if (kind === 0) {
+      /* EP Alltoall：按层级对端数直接分解，机内 = MIN(总流量, 机内大小−1) */
+      intraFlow = Math.min(totalFlow, intraSize - 1);
+      superFlow = Math.max(Math.min(domain, superSize) - intraSize, 0);
+      interFlow = Math.max(domain - superSize, 0);
+    } else {
+      /* 分层 Allgather/RS：机内 = 总流量 − 超节点内 − 超节点间（余量法，下限 0） */
+      interFlow = Math.max(domain / sEff - 1, 0);
+      superFlow = Math.max(Math.min(domain, sEff) / iEff - 1, 0) * (interFlow + 1);
+      intraFlow = Math.max(totalFlow - superFlow - interFlow, 0);
+    }
+
+    /* 算法带宽：总流量 / MAX(机内+超节点内耗时, 超节点间耗时)；耗时 = 总接受数据(GB)/带宽 */
+    var tIntra = intraBW > 0 ? intraFlow / intraBW : (intraFlow > 0 ? Infinity : 0);
+    var tSuper = superBW > 0 ? superFlow / superBW : (superFlow > 0 ? Infinity : 0);
+    var tInter = interBW > 0 ? interFlow / interBW : (interFlow > 0 ? Infinity : 0);
+    var worstTime = Math.max(tIntra + tSuper, tInter);
+    var algBW     = (isFinite(worstTime) && worstTime > 0) ? totalFlow / worstTime : 0; /* GB/s */
+    var commTimeS = (algBW > 0) ? (recvTotalMB / 1024) / algBW : 0;
+
+    /* 瓶颈层：单个层级 流量/带宽 最大者 */
+    var tierList = [ { n: "机内", f: intraFlow, b: intraBW },
+                     { n: "超节点内", f: superFlow, b: superBW },
+                     { n: "超节点间", f: interFlow, b: interBW } ];
+    var bt = null, btT = -1, k;
+    for (k = 0; k < tierList.length; k++) {
+      var tt = tierList[k];
+      var tv = tt.b > 0 ? tt.f / tt.b : (tt.f > 0 ? Infinity : 0);
+      if (tv > btT) { btT = tv; bt = tt; }
+    }
+    var bottleneckText = (bt && bt.f > 0)
+      ? bt.n + "（" + fmt(bt.f, dec) + " 份 · " + fmt(bt.b, 0) + " GB/s）" : "—";
+
+    /* 告警 */
+    var warnings = [];
+    if (intraSize > superSize) warnings.push("机内大小(" + fmt(intraSize, 0) + ") 超过超节点大小(" + fmt(superSize, 0) + ")");
+    if (interFlow > 0 && interBW <= 0) warnings.push("存在超节点间流量但超节点间带宽为 0");
+
+    return { mode: mode, kind: kind, dec: dec, domain: domain,
+             recvTotalMB: recvTotalMB, pieceMB: pieceMB,
+             totalFlow: totalFlow, intraFlow: intraFlow, superFlow: superFlow, interFlow: interFlow,
+             intraBW: intraBW, superBW: superBW, interBW: interBW,
+             intraSize: intraSize, superSize: superSize, sEff: sEff, iEff: iEff,
+             algBW: algBW, commTimeS: commTimeS, bottleneckText: bottleneckText,
+             warnings: warnings };
+  }
+
+  /* 每份数据自适应显示：≥1 MB 取整 MB；更小转 KB */
+  function fmtMB(n) {
+    if (!isFinite(n)) return "—";
+    if (n >= 1) return fmt(n, 0) + " MB";
+    if (n > 0) return fmt(n * 1024, 0) + " KB";
+    return "0 MB";
+  }
+
+  /* 通信结果渲染（KPI / 三层列表 / 堆叠条 / 瓶颈 / 告警）；tag 为列前缀 a=EP / f=FSDP / e=EFSDP */
+  function renderCommCol(tag, comm) {
+    $("comm-" + tag + "-total").textContent = fmt(comm.recvTotalMB / 1024, 1) + " GB";
+    $("comm-" + tag + "-piece").textContent = fmtMB(comm.pieceMB);
+    $("comm-" + tag + "-bw").textContent = fmt(comm.algBW, 2) + " GB/s";
+    $("comm-" + tag + "-time").textContent = fmtTime(comm.commTimeS);
+    $("comm-" + tag + "-bottleneck").textContent = comm.bottleneckText;
+    $("comm-" + tag + "-total-sub").textContent = comm.kind === 0
+      ? "seq × MoE hidden × 2B × topk / 1024² / 通信域 × (通信域−1)"
+      : comm.kind === 1
+        ? "单层Attn(B) × 10⁹ × dtype字节 / 1024² / 通信域 × (通信域−1)"
+        : "单层MoE(B)/EP × 10⁹ × dtype字节 / 1024² / 通信域 × (通信域−1)";
+    $("comm-" + tag + "-piece-sub").textContent = "总接受数据 / (通信域 − 1)";
+
+    var tierRows = [
+      { key: "i", name: "机内",     note: "大小 " + fmt(comm.iEff, 0) + " · " + fmt(comm.intraBW, 0) + " GB/s", v: comm.intraFlow,
+        fmt: function (n) { return fmt(n, comm.dec) + " 份"; } },
+      { key: "s", name: "超节点内", note: "大小 " + fmt(comm.sEff, 0) + " · " + fmt(comm.superBW, 0) + " GB/s", v: comm.superFlow,
+        fmt: function (n) { return fmt(n, comm.dec) + " 份"; } },
+      { key: "e", name: "超节点间", note: "带宽 " + fmt(comm.interBW, 0) + " GB/s", v: comm.interFlow,
+        fmt: function (n) { return fmt(n, comm.dec) + " 份"; } }
+    ];
+    renderList("comm-" + tag + "-tiers", tierRows, comm.totalFlow);
+    renderStack("comm-" + tag + "-stack", "comm-" + tag + "-legend", tierRows, comm.totalFlow);
+
+    var cw = $("comm-" + tag + "-warn");
+    if (comm.warnings.length) {
+      cw.textContent = "通信参数校验： " + comm.warnings.join("；");
+      cw.classList.add("show");
+    } else {
+      cw.classList.remove("show");
+    }
+  }
+
+  /* 并排渲染全部通信模式列（EP Alltoall / FSDP Allgather-RS / EFSDP Allgather-RS） */
+  function renderCommAll() {
+    renderCommCol("a", computeComm("ep"));
+    renderCommCol("f", computeComm("fsdp"));
+    renderCommCol("e", computeComm("efsdp"));
+  }
+
+  /* 渲染清单列表；total 为本清单合计，用于计算各项占比；行可自带 fmt 定制数值格式 */
+  function renderList(id, rows, total) {
+    var html = rows.map(function (r) {
+      var pct = total > 0 ? r.v / total * 100 : 0;
+      var valFmt = r.fmt || fmtGB;
+      return '<li>' +
+        '<div class="row-top">' +
+          '<span class="dot" style="background:' + COLORS[r.key] + '"></span>' +
+          '<span class="name">' + r.name + '<small>' + r.note + '</small></span>' +
+          '<span class="pct">' + fmt(pct, 1) + '%</span>' +
+          '<span class="val">' + valFmt(r.v) + '</span>' +
+        '</div>' +
+        '<div class="bar"><i style="width:' + Math.min(pct, 100) + '%;background:' + COLORS[r.key] + '"></i></div>' +
+      '</li>';
+    }).join("");
+    $(id).innerHTML = html;
+  }
+
+  function renderStack(barId, legendId, rows, total) {
+    var barHtml = rows.map(function (r) {
+      var pct = total > 0 ? r.v / total * 100 : 0;
+      return '<i style="width:' + Math.min(pct, 100) + '%;background:' + COLORS[r.key] + '"></i>';
+    }).join("");
+    var legendHtml = rows.map(function (r) {
+      var pct = total > 0 ? r.v / total * 100 : 0;
+      return '<span><span class="dot" style="background:' + COLORS[r.key] + '"></span>' +
+             r.name + ' ' + fmt(pct, 1) + '%</span>';
+    }).join("");
+    $(barId).innerHTML = barHtml || '<i style="width:100%;background:#cbd5e1"></i>';
+    $(legendId).innerHTML = legendHtml;
+  }
+
+  /* ---------- 配置管理 ---------- */
+  function applyValues(v) {
+    ["attn", "exp", "nExp", "layers", "seqLen", "hidden", "moeHidden", "topk", "act",
+     "fsdp", "ep", "efsdp", "cp", "hbm",
+     "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype"].forEach(function (k) {
+      $(k).value = v[k];
+    });
+    $("recompute").checked = !!v.recompute;
+    $("swap").checked = !!v.swap;
+  }
+
+  function setMsg(text, kind) {
+    var el = $("cfg-msg");
+    el.textContent = text;
+    el.className = "cfg-msg" + (kind ? " " + kind : "");
+  }
+
+  function presetToCustom() {
+    if ($("preset").value !== "custom") $("preset").value = "custom";
+  }
+
+  function applyPreset(id) {
+    var p = null, i;
+    for (i = 0; i < PRESETS.length; i++) if (PRESETS[i].id === id) p = PRESETS[i];
+    if (!p) return false; /* 自定义选项：不做任何修改 */
+    applyValues(p.values);
+    setMsg("已加载预设：「" + p.name + "」", "ok");
+    compute();
+    return true;
+  }
+
+  function pick(obj, keys, def) {
+    for (var i = 0; i < keys.length; i++) {
+      var v = obj[keys[i]];
+      if (v !== undefined && v !== null) return v;
+    }
+    return def;
+  }
+
+  /* 兼容两种 JSON 结构：{model,parallel,options} 嵌套 或 扁平字段（无分组时回退到顶层） */
+  function normalizeCfg(cfg) {
+    if (!cfg || typeof cfg !== "object") return null;
+    var m = (cfg.model && typeof cfg.model === "object") ? cfg.model : cfg;
+    var p = (cfg.parallel && typeof cfg.parallel === "object") ? cfg.parallel : cfg;
+    var o = (cfg.options && typeof cfg.options === "object") ? cfg.options : cfg;
+    var nw = (cfg.network && typeof cfg.network === "object") ? cfg.network : cfg;
+    function n(src, keys) { var x = parseFloat(pick(src, keys)); return isFinite(x) ? x : null; }
+    function b(src, keys, d) {
+      var x = pick(src, keys);
+      if (typeof x === "boolean") return x;
+      if (x === 1 || x === 0) return !!x;
+      return d;
+    }
+    var v = {
+      attn:   n(m, ["attnB", "attn"]),
+      exp:    n(m, ["expertB", "exp"]),
+      nExp:   n(m, ["numExperts", "nExp"]),
+      layers: n(m, ["layers"]),
+      seqLen: n(m, ["seqLen", "seq"]),
+      hidden: n(m, ["hiddenSize", "hidden"]),
+      moeHidden: n(m, ["moeHidden", "moeHiddenSize"]),
+      topk:   n(m, ["topk"]),
+      act:    n(m, ["activationGB", "act"]),
+      fsdp:   n(p, ["fsdp"]),
+      ep:     n(p, ["ep"]),
+      efsdp:  n(p, ["efsdp"]),
+      cp:     n(p, ["cp"]),
+      hbm:    n(p, ["hbmGB", "hbm"]),
+      intraBW:   n(nw, ["intraBW"]),
+      intraSize: n(nw, ["intraSize"]),
+      superBW:   n(nw, ["superBW"]),
+      superSize: n(nw, ["superSize"]),
+      interBW:   n(nw, ["interBW"]),
+      fsdpDtype: n(nw, ["fsdpDtype"]),
+      recompute: b(o, ["recompute"], true),
+      swap:      b(o, ["swapOptimizer", "swap"], false)
+    };
+    var bad = false, i;
+    ["attn", "exp", "nExp", "layers", "fsdp", "ep", "efsdp", "cp"].forEach(function (k) {
+      if (v[k] === null) bad = true;
+    });
+    if (!bad && (v.nExp < 1 || v.layers < 1 || v.fsdp < 1 || v.ep < 1 || v.efsdp < 1 || v.cp < 1)) bad = true;
+    if (!bad && (v.attn < 0 || v.exp < 0)) bad = true;
+    if (v.topk === null) v.topk = 1;
+    if (v.act === null) v.act = 0;
+    if (v.seqLen === null) v.seqLen = 0;
+    if (v.hidden === null) v.hidden = 0;
+    if (v.moeHidden === null) v.moeHidden = 0;
+    if (v.intraBW === null) v.intraBW = 0;
+    if (v.intraSize === null || v.intraSize < 1) v.intraSize = 1;
+    if (v.superBW === null) v.superBW = 0;
+    if (v.superSize === null || v.superSize < 1) v.superSize = 1;
+    if (v.interBW === null) v.interBW = 0;
+    if (v.fsdpDtype === null || v.fsdpDtype < 0) v.fsdpDtype = 2;
+    if (v.intraBW < 0) v.intraBW = 0;
+    if (v.superBW < 0) v.superBW = 0;
+    if (v.interBW < 0) v.interBW = 0;
+    if (v.hbm === null) v.hbm = 80;
+    return bad ? null : v;
+  }
+
+  function importFromText(text) {
+    var cfg;
+    try { cfg = JSON.parse(text); }
+    catch (e) { setMsg("导入失败：JSON 解析错误", "err"); return false; }
+    var v = normalizeCfg(cfg);
+    if (!v) { setMsg("导入失败：缺少必要字段或数值不合法（需含模型/并行参数）", "err"); return false; }
+    applyValues(v);
+    presetToCustom();
+    compute();
+    setMsg("导入成功：" + (cfg.name || "自定义配置"), "ok");
+    return true;
+  }
+
+  function buildExportConfig() {
+    var sel = $("preset");
+    var name = "自定义配置";
+    if (sel.value !== "custom" && sel.options && sel.selectedIndex >= 0) {
+      var txt = sel.options[sel.selectedIndex].textContent || "";
+      txt = txt.replace(/^\s*[★✏]\s*/, "").trim();
+      if (txt) name = txt;
+    }
+    return {
+      name: name,
+      version: 1,
+      model: {
+        attnB: num("attn"), expertB: num("exp"), numExperts: int("nExp"),
+        layers: int("layers"), seqLen: int("seqLen"), hiddenSize: int("hidden"),
+        moeHidden: int("moeHidden"), topk: int("topk"), activationGB: num("act")
+      },
+      parallel: { fsdp: int("fsdp"), ep: int("ep"), efsdp: int("efsdp"),
+                  cp: int("cp"), hbmGB: num("hbm") },
+      network: { intraBW: num("intraBW"), intraSize: int("intraSize"),
+                 superBW: num("superBW"), superSize: int("superSize"),
+                 interBW: num("interBW"),
+                 fsdpDtype: num("fsdpDtype") },
+      options: { recompute: checked("recompute"), swapOptimizer: checked("swap") }
+    };
+  }
+
+  function exportConfig() {
+    var cfg = buildExportConfig();
+    var blob = new Blob([JSON.stringify(cfg, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "llm-sim-config-" + (cfg.name === "自定义配置" ? "custom" : cfg.name.replace(/\s+/g, "-")) + ".json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setMsg("已导出配置：" + cfg.name, "ok");
+  }
+
+  /* ---------- 重置 & 初始化 ---------- */
+  function setDefaults() {
+    Object.keys(DEFAULT).forEach(function (k) {
+      var v = DEFAULT[k];
+      if (typeof v === "boolean") { $(k).checked = v; }
+      else                        { $(k).value = v; }
+    });
+    compute();
+  }
+
+  var INPUTS = ["attn", "exp", "nExp", "layers", "seqLen", "hidden", "moeHidden", "topk", "act",
+                "fsdp", "ep", "efsdp", "cp", "hbm",
+                "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype",
+                "recompute", "swap"];
+  INPUTS.forEach(function (id) {
+    var el = $(id);
+    el.addEventListener("input", function () { presetToCustom(); compute(); });
+    el.addEventListener("change", function () { presetToCustom(); compute(); });
+  });
+
+  $("preset").addEventListener("change", function () {
+    applyPreset(this.value);
+  });
+  $("btn-export").addEventListener("click", exportConfig);
+  $("btn-import").addEventListener("click", function () { $("import-file").click(); });
+  $("import-file").addEventListener("change", function () {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function () { importFromText(reader.result); };
+    reader.readAsText(f);
+    this.value = "";
+  });
+  $("reset").addEventListener("click", function () {
+    setDefaults();
+    $("preset").value = "custom";
+    setMsg("已重置为示例参数（DeepSeekV4 10T 预设值）", "ok");
+  });
+
+  /* ---------- 右侧参数面板拖拽调宽（桌面端；小屏自动恢复为流式布局） ---------- */
+  if (typeof document.addEventListener === "function") {
+    var rz = $("panel-resizer"), rightPanel = $("rightPanel"), centerPanel = $("centerPanel");
+    var rMove = null, rUp = null;
+    /* 手柄为 fixed 元素，需跟随面板左边缘（不随面板内部滚动，全高度可拖拽） */
+    function syncResizer() {
+      if (window.innerWidth < 1100) { rz.style.display = "none"; return; }
+      rz.style.display = "";
+      rz.style.left = (rightPanel.getBoundingClientRect().left - 4) + "px";
+    }
+    syncResizer();
+    rz.addEventListener("mousedown", function (e) {
+      var startX = e.clientX;
+      var startW = rightPanel.getBoundingClientRect().width;
+      document.body.classList.add("resizing");
+      document.addEventListener("mousemove", rMove = function (ev) {
+        var w = startW - (ev.clientX - startX);   /* 向左拖拽 → 面板更宽 */
+        w = Math.max(300, Math.min(620, w));
+        rightPanel.style.width = w + "px";
+        centerPanel.style.marginRight = (w + 30) + "px";
+        rz.style.left = (window.innerWidth - w - 4) + "px";
+      });
+      document.addEventListener("mouseup", rUp = function () {
+        document.body.classList.remove("resizing");
+        document.removeEventListener("mousemove", rMove);
+        document.removeEventListener("mouseup", rUp);
+      });
+      e.preventDefault();
+    });
+    document.addEventListener("resize", function () {
+      if (window.innerWidth < 1100) {
+        rightPanel.style.width = "";
+        centerPanel.style.marginRight = "";
+      }
+      syncResizer();
+    });
+  }
+
+  setDefaults();
+
+  /* ---------- 粘贴导入配置弹窗 ---------- */
+  function openPaste() {
+    $("paste-input").value = "";
+    var pm = $("paste-msg");
+    pm.textContent = "";
+    pm.className = "cfg-msg";
+    $("paste-modal").classList.add("show");
+    var pi = $("paste-input");
+    if (pi.focus) pi.focus();
+  }
+  function closePaste() { $("paste-modal").classList.remove("show"); }
+  $("btn-paste").addEventListener("click", openPaste);
+  $("btn-paste-ok").addEventListener("click", function () {
+    var ok = importFromText($("paste-input").value);
+    var pm = $("paste-msg");
+    if (ok) { closePaste(); }
+    else {
+      pm.textContent = $("cfg-msg").textContent;
+      pm.className = "cfg-msg err";
+    }
+  });
+  $("btn-paste-cancel").addEventListener("click", closePaste);
+  $("paste-modal").addEventListener("click", function (e) { if (e.target === this) closePaste(); });
+
+  /* ---------- 外部预设文件加载（presets.json；失败时保留内置 fallback） ---------- */
+  if (typeof fetch === "function") {
+    fetch("presets.json").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (cfg) {
+      if (!cfg || typeof cfg !== "object") return;
+      if (cfg.default && typeof cfg.default === "object") DEFAULT = cfg.default;
+      if (Array.isArray(cfg.presets) && cfg.presets.length) PRESETS = cfg.presets;
+      try {
+        var sel = $("preset");
+        sel.innerHTML = "";
+        var o0 = document.createElement("option");
+        o0.value = "custom"; o0.textContent = "✏️ 自定义配置";
+        sel.appendChild(o0);
+        PRESETS.forEach(function (p) {
+          var o = document.createElement("option");
+          o.value = p.id; o.textContent = "★ " + p.name;
+          sel.appendChild(o);
+        });
+        sel.value = "custom";
+      } catch (e) { /* 兼容性兜底：保留 HTML 静态选项 */ }
+      setDefaults();
+      setMsg("已加载外部预设 presets.json（" + PRESETS.length + " 个预设）", "ok");
+    }).catch(function () { /* 加载失败：使用内置 fallback 预设 */ });
+  }
+})();
+</script>
+</body>
+</html>
