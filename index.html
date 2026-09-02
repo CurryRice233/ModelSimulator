@@ -526,6 +526,10 @@
           <option value="1">FP8（1 B）</option>
         </select>
       </div>
+      <div class="field">
+        <label for="util">带宽利用率</label>
+        <div class="unitbox"><input id="util" type="number" step="any" min="0" max="1" value="0.8"><span class="unit"></span></div>
+      </div>
     </div>
   </section>
 
@@ -608,7 +612,7 @@
             <div class="k-sub" id="comm-a-piece-sub">总接受数据 / (通信域 − 1)</div></div>
           <div class="kpi"><div class="k-label">算法带宽</div>
             <div class="k-value" id="comm-a-bw">—</div>
-            <div class="k-sub" id="comm-a-bw-sub">总流量 / max(机内+超节点内, 超节点间)耗时</div></div>
+            <div class="k-sub" id="comm-a-bw-sub">总流量/瓶颈耗时 × 带宽利用率</div></div>
           <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
             <div class="k-value" id="comm-a-time">—</div>
             <div class="k-sub" id="comm-a-time-sub">总接受数据(GB) / 算法带宽</div></div>
@@ -635,7 +639,7 @@
             <div class="k-sub" id="comm-f-piece-sub">总接受数据 / (通信域 − 1)</div></div>
           <div class="kpi"><div class="k-label">算法带宽</div>
             <div class="k-value" id="comm-f-bw">—</div>
-            <div class="k-sub" id="comm-f-bw-sub">总流量 / max(机内+超节点内, 超节点间)耗时</div></div>
+            <div class="k-sub" id="comm-f-bw-sub">总流量/瓶颈耗时 × 带宽利用率</div></div>
           <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
             <div class="k-value" id="comm-f-time">—</div>
             <div class="k-sub" id="comm-f-time-sub">总接受数据(GB) / 算法带宽</div></div>
@@ -662,7 +666,7 @@
             <div class="k-sub" id="comm-e-piece-sub">总接受数据 / (通信域 − 1)</div></div>
           <div class="kpi"><div class="k-label">算法带宽</div>
             <div class="k-value" id="comm-e-bw">—</div>
-            <div class="k-sub" id="comm-e-bw-sub">总流量 / max(机内+超节点内, 超节点间)耗时</div></div>
+            <div class="k-sub" id="comm-e-bw-sub">总流量/瓶颈耗时 × 带宽利用率</div></div>
           <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
             <div class="k-value" id="comm-e-time">—</div>
             <div class="k-sub" id="comm-e-time-sub">总接受数据(GB) / 算法带宽</div></div>
@@ -707,7 +711,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
 超节点内流量 = MAX(MIN(通信域, 超节点大小) − 机内大小, 0)
 超节点间流量 = MAX(通信域 − 超节点大小, 0)
 各层占比 = 各层流量 / 总流量
-算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽)
+算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
 通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
       <code>FSDP Allgather / ReduceScatter（分层）：
 通信域 = FSDP
@@ -718,7 +722,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
 超节点内流量 = MAX(MIN(通信域, 超节点大小) / 机内大小 − 1, 0) × (超节点间流量 + 1)
 超节点间流量 = MAX(通信域 / 超节点大小 − 1, 0)
 各层占比 = 各层流量 / 总流量
-算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽)
+算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
 通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
       <code>EFSDP Allgather / ReduceScatter（分层）：
 通信域 = EFSDP
@@ -731,7 +735,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
 超节点内流量 = MAX(MIN(通信域, 有效超节点) / 有效机内 − 1, 0) × (超节点间流量 + 1)
 超节点间流量 = MAX(通信域 / 有效超节点 − 1, 0)
 各层占比 = 各层流量 / 总流量
-算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽)
+算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
 通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
     </div>
   </details>
@@ -763,7 +767,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
     seqLen: 2048, hidden: 7168, moeHidden: 3072,
     fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
     intraBW: 100, intraSize: 16, superBW: 200, superSize: 1024,
-    interBW: 50, fsdpDtype: 2,
+    interBW: 50, fsdpDtype: 2, util: 0.8,
     recompute: true, swap: false
   };
 
@@ -775,7 +779,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
         seqLen: 2048, hidden: 7168, moeHidden: 3072,
         fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
         intraBW: 100, intraSize: 16, superBW: 200, superSize: 1024,
-        interBW: 50, fsdpDtype: 2,
+        interBW: 50, fsdpDtype: 2, util: 0.8,
         recompute: true, swap: false
       } }
   ];
@@ -944,6 +948,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
     var domain = Math.max(0, kind === 0 ? int("ep") : (kind === 1 ? int("fsdp") : int("efsdp")));
     var fsdpDtype = Math.max(0, num("fsdpDtype"));
     var epDiv = Math.max(1, int("ep"));        /* EFSDP：有效层级大小 = 物理大小 / EP */
+    var util = Math.max(0, num("util"));            /* 带宽利用率（默认 0.8） */
     var intraBW = num("intraBW"), intraSize = Math.max(1, int("intraSize"));
     var superBW = num("superBW"), superSize = Math.max(1, int("superSize"));
     var interBW = num("interBW");
@@ -989,7 +994,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
     var tSuper = superBW > 0 ? superFlow / superBW : (superFlow > 0 ? Infinity : 0);
     var tInter = interBW > 0 ? interFlow / interBW : (interFlow > 0 ? Infinity : 0);
     var worstTime = Math.max(tIntra + tSuper, tInter);
-    var algBW     = (isFinite(worstTime) && worstTime > 0) ? totalFlow / worstTime : 0; /* GB/s */
+    var algBW     = (isFinite(worstTime) && worstTime > 0) ? totalFlow / worstTime * util : 0; /* GB/s = 理论带宽 × 带宽利用率 */
     var commTimeS = (algBW > 0) ? (recvTotalMB / 1024) / algBW : 0;
 
     /* 瓶颈层：单个层级 流量/带宽 最大者 */
@@ -1104,7 +1109,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
   function applyValues(v) {
     ["attn", "exp", "nExp", "layers", "seqLen", "hidden", "moeHidden", "topk", "act",
      "fsdp", "ep", "efsdp", "cp", "hbm",
-     "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype"].forEach(function (k) {
+     "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype", "util"].forEach(function (k) {
       $(k).value = v[k];
     });
     $("recompute").checked = !!v.recompute;
@@ -1174,6 +1179,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
       superSize: n(nw, ["superSize"]),
       interBW:   n(nw, ["interBW"]),
       fsdpDtype: n(nw, ["fsdpDtype"]),
+      util:      n(nw, ["util", "bandwidthUtil"]),
       recompute: b(o, ["recompute"], true),
       swap:      b(o, ["swapOptimizer", "swap"], false)
     };
@@ -1194,6 +1200,8 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
     if (v.superSize === null || v.superSize < 1) v.superSize = 1;
     if (v.interBW === null) v.interBW = 0;
     if (v.fsdpDtype === null || v.fsdpDtype < 0) v.fsdpDtype = 2;
+    if (v.util === null || v.util < 0) v.util = 0.8;
+    if (v.util > 1) v.util = 1;
     if (v.intraBW < 0) v.intraBW = 0;
     if (v.superBW < 0) v.superBW = 0;
     if (v.interBW < 0) v.interBW = 0;
@@ -1235,7 +1243,8 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
       network: { intraBW: num("intraBW"), intraSize: int("intraSize"),
                  superBW: num("superBW"), superSize: int("superSize"),
                  interBW: num("interBW"),
-                 fsdpDtype: num("fsdpDtype") },
+                 fsdpDtype: num("fsdpDtype"),
+                 util: num("util") },
       options: { recompute: checked("recompute"), swapOptimizer: checked("swap") }
     };
   }
@@ -1266,7 +1275,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
 
   var INPUTS = ["attn", "exp", "nExp", "layers", "seqLen", "hidden", "moeHidden", "topk", "act",
                 "fsdp", "ep", "efsdp", "cp", "hbm",
-                "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype",
+                "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype", "util",
                 "recompute", "swap"];
   INPUTS.forEach(function (id) {
     var el = $(id);

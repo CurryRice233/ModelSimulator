@@ -162,16 +162,16 @@ assertContains('import msg err', els['cfg-msg'].className, 'err');
 
 els['preset'].value = 'deepseek-v4-10t';
 els['preset'].selectedIndex = 1;
-__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, recompute:true, swap:false });
+__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false });
 const cfgObj = __t.buildExportConfig();
 const expected = { name:'DeepSeekV4 10T(预估)', version:1,
   model:{attnB:0.301,expertB:0.066,numExperts:2048,layers:61,seqLen:2048,hiddenSize:7168,moeHidden:3072,topk:30,activationGB:5.21},
   parallel:{fsdp:2048,ep:128,efsdp:16,cp:1,hbmGB:96},
-  network:{intraBW:100,intraSize:16,superBW:200,superSize:1024,interBW:50,fsdpDtype:2},
+  network:{intraBW:100,intraSize:16,superBW:200,superSize:1024,interBW:50,fsdpDtype:2,util:0.8},
   options:{recompute:true,swapOptimizer:false} };
 assertEq('export cfg JSON', JSON.stringify(cfgObj), JSON.stringify(expected));
 els['preset'].value = 'custom';
-__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, recompute:true, swap:false });
+__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false });
 assertEq('export 自定义 name', __t.buildExportConfig().name, '自定义配置');
 __t.exportConfig();
 assertContains('export msg', els['cfg-msg'].textContent, '已导出配置');
@@ -199,8 +199,8 @@ console.log('--- Pass G OK ---\n');
 __t.compute();
 assertEq('EP 列 总接受数据', readNum('comm-a-total'), '0.3 GB');
 assertEq('EP 列 每份数据', readNum('comm-a-piece'), '3 MB');
-assertEq('EP 列 有效带宽', readNum('comm-a-bw'), '178.87 GB/s');
-assertEq('EP 列 耗时', readNum('comm-a-time'), '1.950 ms');
+assertEq('EP 列 有效带宽', readNum('comm-a-bw'), '143.1 GB/s');
+assertEq('EP 列 耗时', readNum('comm-a-time'), '2.438 ms');
 assertEq('EP 列 瓶颈层', readNum('comm-a-bottleneck'), '超节点内（112 份 · 200 GB/s）');
 assertEq('EP 列 tiers 行数', (els['comm-a-tiers'].innerHTML.match(/<li>/g)||[]).length + '', '3');
 assertContains('EP 列 机内', els['comm-a-tiers'].innerHTML, '15 份');
@@ -231,15 +231,15 @@ __t.compute();
 /* 左列 EP Alltoall */
 assertEq('EP 列 总接受数据', readNum('comm-a-total'), '0.3 GB');
 assertEq('EP 列 每份数据', readNum('comm-a-piece'), '3 MB');
-assertEq('EP 列 算法带宽', readNum('comm-a-bw'), '178.87 GB/s');
-assertEq('EP 列 耗时', readNum('comm-a-time'), '1.950 ms');
+assertEq('EP 列 算法带宽', readNum('comm-a-bw'), '143.1 GB/s');
+assertEq('EP 列 耗时', readNum('comm-a-time'), '2.438 ms');
 assertEq('EP 列 瓶颈层', readNum('comm-a-bottleneck'), '超节点内（112 份 · 200 GB/s）');
 /* 右列 FSDP Allgather/RS（默认 dtype=2 即 BF16：0.301B × 10⁹ × 2 / 1024² / 2048 × 2047 ≈ 573.8 MB） */
 assertEq('FSDP 通信域', __t.computeComm('fsdp').domain + '', '2048');
 assertEq('FSDP 列 总接收(BF16)', readNum('comm-f-total'), '0.6 GB');
 assertEq('FSDP 列 每份(BF16)', readNum('comm-f-piece'), '287 KB');
-assertEq('FSDP 列 算法带宽', readNum('comm-f-bw'), '103.23 GB/s');
-assertEq('FSDP 列 耗时(BF16)', readNum('comm-f-time'), '5.429 ms');
+assertEq('FSDP 列 算法带宽', readNum('comm-f-bw'), '82.58 GB/s');
+assertEq('FSDP 列 耗时(BF16)', readNum('comm-f-time'), '6.786 ms');
 assertEq('FSDP 列 瓶颈层', readNum('comm-f-bottleneck'), '机内（1,920 份 · 100 GB/s）');
 assertContains('FSDP 列 机内', els['comm-f-tiers'].innerHTML, '1,920 份');
 assertContains('FSDP 列 机内占比', els['comm-f-tiers'].innerHTML, '93.8%');
@@ -256,8 +256,8 @@ else console.log('[OK] FSDP 列 comm-warn 缺省隐藏');
 assertEq('EFSDP 通信域', __t.computeComm('efsdp').domain + '', '16');
 assertEq('EFSDP 列 总接受数据', readNum('comm-e-total'), '1.8 GB');
 assertEq('EFSDP 列 每份数据', readNum('comm-e-piece'), '126 MB');
-assertEq('EFSDP 列 算法带宽', readNum('comm-e-bw'), '214.29 GB/s');
-assertEq('EFSDP 列 耗时', readNum('comm-e-time'), '8.605 ms');
+assertEq('EFSDP 列 算法带宽', readNum('comm-e-bw'), '171.43 GB/s');
+assertEq('EFSDP 列 耗时', readNum('comm-e-time'), '10.757 ms');
 assertEq('EFSDP 列 瓶颈层', readNum('comm-e-bottleneck'), '超节点内（14 份 · 200 GB/s）');
 assertContains('EFSDP 列 机内', els['comm-e-tiers'].innerHTML, '0 份');
 assertContains('EFSDP 列 超节点内', els['comm-e-tiers'].innerHTML, '14 份');
@@ -279,13 +279,13 @@ els['fsdpDtype'].value = '4';
 __t.compute();
 assertEq('FSDP FP32 总接收', readNum('comm-f-total'), '1.1 GB');
 assertEq('FSDP FP32 每份', readNum('comm-f-piece'), '574 KB');
-assertEq('FSDP FP32 耗时', readNum('comm-f-time'), '10.857 ms');
+assertEq('FSDP FP32 耗时', readNum('comm-f-time'), '13.572 ms');
 assertEq('EP 列不受 dtype 影响', readNum('comm-a-total'), '0.3 GB');
 els['fsdpDtype'].value = '1';
 __t.compute();
 assertEq('FSDP FP8 总接收', readNum('comm-f-total'), '0.3 GB');
 assertEq('FSDP FP8 每份', readNum('comm-f-piece'), '144 KB');
-assertEq('FSDP FP8 耗时', readNum('comm-f-time'), '2.714 ms');
+assertEq('FSDP FP8 耗时', readNum('comm-f-time'), '3.393 ms');
 els['fsdpDtype'].value = '2';
 __t.compute();
 assertEq('FSDP 恢复 BF16 默认', readNum('comm-f-total'), '0.6 GB');
@@ -300,10 +300,13 @@ assertEq('presets.json 预设数', (pcfg.presets || []).length + '', '1');
 assertEq('presets.json 预设 id', pcfg.presets[0].id, 'deepseek-v4-10t');
 assertEq('presets.json 预设 moeHidden', pcfg.presets[0].values.moeHidden, 3072);
 assertEq('presets.json 预设 intraBW', pcfg.presets[0].values.intraBW, 100);
+assertEq('presets.json default.util', pcfg.default.util, 0.8);
+assertEq('presets.json 预设 util', pcfg.presets[0].values.util, 0.8);
 __t.applyPreset('deepseek-v4-10t');
 assertEq('外部预设 moeHidden 生效', els['moeHidden'].value, 3072);
 assertEq('外部预设 intraBW 生效', els['intraBW'].value, 100);
 assertEq('外部预设 hidden 生效', els['hidden'].value, 7168);
+assertEq('外部预设 util 生效', els['util'].value, 0.8);
 console.log('--- Pass K OK ---\n');
 
 if (fail) { console.error('TESTS FAILED'); process.exit(1); }
