@@ -74,13 +74,13 @@ assertContains('kpi-cards-sub 公式', readNum('kpi-cards-sub'), 'FSDP×CP = 2,0
 assertContains('kpi-cards-sub 说明', readNum('kpi-cards-sub'), '取最大');
 assertEq('kpi-totalw', readNum('kpi-totalw'), '30,784.34 GB（30.06 TB）');
 assertEq('kpi-cardw',  readNum('kpi-cardw'),  '15 GB');
-assertEq('kpi-total',   readNum('kpi-total'),  '74.76 GB');
+assertEq('kpi-total',   readNum('kpi-total'),  '76.98 GB');
 assertEq('cluster-static', readNum('cluster-static'), '123,137.37 GB（120.25 TB）');
 assertEq('cluster-total',  readNum('cluster-total'),  '123,455.18 GB（120.56 TB）');
-assertEq('card-total',     readNum('card-total'),     '74.76 GB');
+assertEq('card-total',     readNum('card-total'),     '76.98 GB');
 assertEq('cluster-list rows', (els['cluster-list'].innerHTML.match(/<li>/g)||[]).length + '', '4');
 assertEq('card-list rows',    (els['card-list'].innerHTML.match(/<li>/g)||[]).length + '', '7');
-assertEq('kpi-hbm', readNum('kpi-hbm'), '占 96 GB HBM：77.9%');
+assertEq('kpi-hbm', readNum('kpi-hbm'), '占 96 GB HBM：80.2%');
 assertContains('kpi-totalw-sub', readNum('kpi-totalw-sub'), '8,263.6 B');
 assertContains('card-list Layer Input', els['card-list'].innerHTML, 'Layer Input');
 assertContains('card-list Layer Input 值', els['card-list'].innerHTML, '1.67 GB');
@@ -89,15 +89,15 @@ console.log('--- Pass A OK ---\n');
 /* Pass B: recompute=false */
 els['recompute'].checked = false;
 __t.compute();
-assertEq('kpi-total (no recompute)', readNum('kpi-total'), '387.36 GB');
-assertEq('card-total (no recompute)', readNum('card-total'), '387.36 GB');
-assertEq('kpi-hbm (no recompute)', readNum('kpi-hbm'), '占 96 GB HBM：403.5%');
+assertEq('kpi-total (no recompute)', readNum('kpi-total'), '389.58 GB');
+assertEq('card-total (no recompute)', readNum('card-total'), '389.58 GB');
+assertEq('kpi-hbm (no recompute)', readNum('kpi-hbm'), '占 96 GB HBM：405.8%');
 console.log('--- Pass B OK ---\n');
 
 /* Pass C: HBM 超限 */
 els['hbm'].value = '20';
 __t.compute();
-assertEq('kpi-hbm (hbm=20)', readNum('kpi-hbm'), '占 20 GB HBM：1,936.8%');
+assertEq('kpi-hbm (hbm=20)', readNum('kpi-hbm'), '占 20 GB HBM：1,947.9%');
 console.log('--- Pass C OK ---\n');
 
 /* Pass D: 非法并行度 */
@@ -168,7 +168,7 @@ const expected = { name:'DeepSeekV4 10T(预估)', version:1,
   model:{attnB:0.301,expertB:0.066,numExperts:2048,layers:61,seqLen:2048,hiddenSize:7168,moeHidden:3072,topk:30,activationGB:5.21},
   parallel:{fsdp:2048,ep:128,efsdp:16,cp:1,hbmGB:96},
   network:{intraBW:100,intraSize:16,superBW:200,superSize:1024,interBW:50,fsdpDtype:2,util:0.8},
-  options:{recompute:true,swapOptimizer:false} };
+  options:{recompute:true,swapOptimizer:false,swapActivation:false} };
 assertEq('export cfg JSON', JSON.stringify(cfgObj), JSON.stringify(expected));
 els['preset'].value = 'custom';
 __t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false });
@@ -180,9 +180,9 @@ console.log('--- Pass F OK ---\n');
 /* Pass G: SwapOptimizer=True → 仅单卡优化器=0，集群口径不变 */
 els['swap'].checked = true;
 __t.compute();
-assertEq('swap 单卡总显存', readNum('kpi-total'), '44.76 GB');
-assertEq('swap card-total', readNum('card-total'), '44.76 GB');
-assertEq('swap kpi-hbm', readNum('kpi-hbm'), '占 96 GB HBM：46.6%');
+assertEq('swap 单卡总显存', readNum('kpi-total'), '46.98 GB');
+assertEq('swap card-total', readNum('card-total'), '46.98 GB');
+assertEq('swap kpi-hbm', readNum('kpi-hbm'), '占 96 GB HBM：48.9%');
 assertEq('swap cluster-static 不变', readNum('cluster-static'), '123,137.37 GB（120.25 TB）');
 assertEq('swap cluster-total 不变',  readNum('cluster-total'),  '123,455.18 GB（120.56 TB）');
 assertContains('swap 单卡优化器=0', els['card-list'].innerHTML, 'class="val">0 GB');
@@ -192,7 +192,7 @@ if (els['cluster-list'].innerHTML.includes('SwapOptimizer')) { console.error('[F
 else console.log('[OK] 集群无 Swap 标注');
 els['swap'].checked = false;
 __t.compute();
-assertEq('swap 关闭后恢复', readNum('card-total'), '74.76 GB');
+assertEq('swap 关闭后恢复', readNum('card-total'), '76.98 GB');
 console.log('--- Pass G OK ---\n');
 
 /* Pass H: 通信耗时 EP Alltoall 列（DeepSeekV4 预设，机内16/超节点1024/集群10240） */
@@ -302,12 +302,27 @@ assertEq('presets.json 预设 moeHidden', pcfg.presets[0].values.moeHidden, 3072
 assertEq('presets.json 预设 intraBW', pcfg.presets[0].values.intraBW, 100);
 assertEq('presets.json default.util', pcfg.default.util, 0.8);
 assertEq('presets.json 预设 util', pcfg.presets[0].values.util, 0.8);
+assertEq('presets.json default.swapact', pcfg.default.swapact, false);
 __t.applyPreset('deepseek-v4-10t');
 assertEq('外部预设 moeHidden 生效', els['moeHidden'].value, 3072);
 assertEq('外部预设 intraBW 生效', els['intraBW'].value, 100);
 assertEq('外部预设 hidden 生效', els['hidden'].value, 7168);
 assertEq('外部预设 util 生效', els['util'].value, 0.8);
 console.log('--- Pass K OK ---\n');
+
+/* Pass L: SwapActivation=True → Layer Input = 0（仅单卡口径，集群不变） */
+__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false, swapact:true });
+__t.compute();
+assertEq('swapact 单卡总显存', readNum('kpi-total'), '75.31 GB');
+assertEq('swapact card-total', readNum('card-total'), '75.31 GB');
+assertEq('swapact kpi-hbm', readNum('kpi-hbm'), '占 96 GB HBM：78.5%');
+assertContains('swapact Layer Input=0', els['card-list'].innerHTML, 'class="val">0 GB');
+assertContains('swapact 标注', els['card-list'].innerHTML, 'SwapActivation：交换出卡');
+assertEq('swapact 集群总显存不变', readNum('cluster-total'), '123,455.18 GB（120.56 TB）');
+els['swapact'].checked = false;
+__t.compute();
+assertEq('swapact 关闭恢复', readNum('card-total'), '76.98 GB');
+console.log('--- Pass L OK ---\n');
 
 if (fail) { console.error('TESTS FAILED'); process.exit(1); }
 console.log('ALL TESTS PASSED');

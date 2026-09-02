@@ -32,7 +32,8 @@ node tests/verify_mem.js
 - 模型参数：单层 Attention 参数量（B）、单个 MoE 专家参数量（B）、专家数量、层数、
   序列长度、Hidden Size、MoE Hidden Size、TopK（EP Alltoall 用）、单层动态激活（GB）
 - 并行方式：FSDP、EP、EFSDP、CP、单卡 HBM 容量（仅用于占用率展示）、
-  Recompute（勾选）、SwapOptimizer（勾选，开启后单卡优化器 = 0）
+  Recompute（勾选）、SwapOptimizer（勾选，开启后单卡优化器 = 0）、
+  SwapActivation（勾选，开启后 Layer Input = 0）
 - 单个完整 DP 域卡数 = MAX(FSDP × CP, EP × EFSDP × CP)（FSDP 为 Attention 权重切分度；
   取 Attention 域（FSDP×CP）与 MoE 域（EP×EFSDP×CP）两者较大者，卡数不再额外乘入）
 - 通信网络（三层拓扑）：机内带宽（GB/s）/ 机内大小、超节点带宽（GB/s）/ 超节点大小、
@@ -50,9 +51,9 @@ node tests/verify_mem.js
 | 单卡模型权重 FP32 (GB) | (单层 Attention 参数量 / FSDP + 单个专家参数量 × 专家数量) × 层数 / (EP × EFSDP) × (4×10⁹/1024³) |
 | 单卡模型梯度 / 优化器 | = 单卡权重；= 单卡权重 × 2；**SwapOptimizer=True 时优化器 = 0 GB（交换出卡）** |
 | 单卡动态激活 (GB) | Recompute=True → 总动态激活 / 层数；否则 = 总动态激活 |
-| 单层预取权重 FP32 (GB) | 总模型权重 / 层数 / EP |
+| 单层预取权重 FP32 (GB) | (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × (4×10⁹/1024³) |
 | 单层临时梯度 FP32 (GB) | = 单层预取权重 |
-| Layer Input (GB) | 序列长度 × Hidden Size × 层数 × 2（BF16） / 1024³ |
+| Layer Input (GB) | SwapActivation=True → 0；否则 序列长度 × Hidden Size × 层数 × 2（BF16） / 1024³ |
 | 单卡总显存 (GB) | 权重 + 梯度 + 优化器 + 动态激活 + Layer Input + 预取权重 + 临时梯度 |
 
 单位换算约定：参数量 B → FP32 显存 GB：**B × 10⁹ × 4 / 1024³ ≈ B × 3.7253 GB**（系数在代码中为
@@ -148,13 +149,13 @@ DeepSeekV4 默认（EFSDP=16，EP=128，dtype=2 BF16）：有效超节点 1024/1
   "model":  { "attnB": 0.301, "expertB": 0.066, "numExperts": 2048, "layers": 61, "seqLen": 2048, "hiddenSize": 7168, "moeHidden": 3072, "topk": 30, "activationGB": 5.21 },
   "parallel": { "fsdp": 2048, "ep": 128, "efsdp": 16, "cp": 1, "hbmGB": 96 },
   "network": { "intraBW": 100, "intraSize": 16, "superBW": 200, "superSize": 1024, "interBW": 50, "fsdpDtype": 2, "util": 0.8 },
-  "options": { "recompute": true, "swapOptimizer": false }
+  "options": { "recompute": true, "swapOptimizer": false, "swapActivation": false }
 }
 ```
 
 内置预设 DeepSeekV4 10T(预估)：单层 Attention 0.301B、单专家 0.066B、专家 2048、层数 61、
 序列长度 2048、Hidden Size 7168、MoE Hidden Size 3072、TopK 30、单层动态激活 5.21GB、
-FSDP 2048 / EP 128 / EFSDP 16 / CP 1、Recompute=True、SwapOptimizer=False、单卡 HBM 96GB
+FSDP 2048 / EP 128 / EFSDP 16 / CP 1、Recompute=True、SwapOptimizer=False、SwapActivation=False、单卡 HBM 96GB
 （总参数 ≈ 8.26T，卡数 2048）；网络：机内 100GB/s×16、超节点 200GB/s×1024、
 超节点间 50GB/s、FSDP dtype=BF16（默认，下拉可按 FP32/FP8 切换）。页面初始示例即此预设参数。
 Layer Input 按 BF16（2 字节/元素）折算，EP Alltoall / FSDP Allgather dtype 亦为 BF16

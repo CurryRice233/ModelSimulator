@@ -6,7 +6,7 @@
     "fsdp": 2048, "ep": 128, "efsdp": 16, "cp": 1, "hbm": 96,
     "intraBW": 100, "intraSize": 8, "superBW": 200, "superSize": 1024,
     "interBW": 50, "fsdpDtype": 2, "util": 0.8,
-    "recompute": true, "swap": false
+    "recompute": true, "swap": false, "swapact": false
   },
   "presets": [
     {
@@ -18,7 +18,7 @@
         "fsdp": 2048, "ep": 128, "efsdp": 16, "cp": 1, "hbm": 96,
         "intraBW": 100, "intraSize": 8, "superBW": 200, "superSize": 1024,
         "interBW": 50, "fsdpDtype": 2, "util": 0.8,
-        "recompute": true, "swap": false
+        "recompute": true, "swap": false, "swapact": false
       }
     }
   ]

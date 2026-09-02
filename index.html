@@ -492,6 +492,12 @@
         <span class="switch-label">SwapOptimizer</span>
         <span class="switch-note">开启后单卡优化器 = 0</span>
       </label>
+      <label class="switch">
+        <input type="checkbox" id="swapact">
+        <span class="track"></span>
+        <span class="switch-label">SwapActivation</span>
+        <span class="switch-note">开启后 Layer Input = 0</span>
+      </label>
     </div>
   </section>
 
@@ -698,9 +704,9 @@
       <code>单卡模型梯度 FP32 (GB) = 单卡模型权重 FP32 (GB)
 单卡优化器 2×FP32 (GB) = 单卡模型权重 FP32 (GB) × 2；SwapOptimizer=True 时 = 0（优化器交换至 Host，不占显存）</code>
       <code>单卡动态激活 (GB) = Recompute ? 总动态激活 / 层数 : 总动态激活</code>
-      <code>单层预取权重 FP32 (GB) = 总模型权重 / 层数 / EP
+      <code>单层预取权重 FP32 (GB) = (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × (4×10⁹/1024³)
 单层临时梯度 FP32 (GB) = 单层预取权重 FP32 (GB)
-Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 1024³</code>
+Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 1024³</code>
       <code>单卡总显存 (GB) = 权重 + 梯度 + 优化器 + 动态激活 + Layer Input + 预取权重 + 临时梯度</code>
       <code>EP Alltoall（均衡）：
 通信域 = EP
@@ -768,7 +774,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
     fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
     intraBW: 100, intraSize: 16, superBW: 200, superSize: 1024,
     interBW: 50, fsdpDtype: 2, util: 0.8,
-    recompute: true, swap: false
+    recompute: true, swap: false, swapact: false
   };
 
   /* 预设配置 */
@@ -780,7 +786,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
         fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
         intraBW: 100, intraSize: 16, superBW: 200, superSize: 1024,
         interBW: 50, fsdpDtype: 2, util: 0.8,
-        recompute: true, swap: false
+        recompute: true, swap: false, swapact: false
       } }
   ];
 
@@ -841,7 +847,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
     var intraBW = num("intraBW"), intraSize = Math.max(1, int("intraSize"));
     var superBW = num("superBW"), superSize = Math.max(1, int("superSize"));
     var interBW = num("interBW");
-    var recompute = checked("recompute"), swap = checked("swap");
+    var recompute = checked("recompute"), swap = checked("swap"), swapact = checked("swapact");
 
     /* ----- 集群维度 ----- */
     /* 单个完整 DP 域卡数 = MAX(FSDP × CP, EP × EFSDP × CP) */
@@ -862,10 +868,13 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
     var cardG = cardW;
     var cardO = swap ? 0 : cardW * 2;               /* SwapOptimizer=True：交换出卡 → 0 */
     var cardAct = recompute ? totalAct / layers : totalAct;
-    var prefetchW = totalW / layers / ep;
+    /* 单层预取权重 = (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × 换算系数 */
+    var prefetchW = (attnB + expB * (nExp / ep)) * GB_PER_B;
     var tempG     = prefetchW;
-    /* Layer Input(层输入) = 序列长度 × hidden size × 层数 × 激活字节数 / 1024³ */
-    var layerInputGB = seqLen * hidden * layers * ACTIVATION_BYTES / Math.pow(1024, 3);
+    /* Layer Input(层输入) = SwapActivation ? 0 : 序列长度 × hidden size × 层数 × 激活字节数 / 1024³ */
+    var layerInputGB = swapact
+      ? 0
+      : seqLen * hidden * layers * ACTIVATION_BYTES / Math.pow(1024, 3);
     var cardTotal = cardW + cardG + cardO + cardAct + prefetchW + tempG + layerInputGB;
 
     /* ---------- 通信：EP Alltoall / FSDP Allgather-RS 并排渲染 ---------- */
@@ -929,8 +938,8 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
       { key: "g", name: "模型梯度 FP32",    note: "= 单卡权重",    v: cardG },
       { key: "o", name: "优化器 2×FP32",    note: swap ? "SwapOptimizer：交换出卡，不占显存" : "= 单卡权重 × 2", v: cardO },
       { key: "a", name: "动态激活",          note: recompute ? "Recompute：总激活/层数" : "无 Recompute：总激活", v: cardAct },
-      { key: "l", name: "Layer Input(层输入)", note: "seq×hidden×层数×2B/1024³", v: layerInputGB },
-      { key: "p", name: "单层预取权重 FP32", note: "总权重/层数/EP", v: prefetchW },
+      { key: "l", name: "Layer Input(层输入)", note: swapact ? "SwapActivation：交换出卡，不占显存" : "seq×hidden×层数×2B/1024³", v: layerInputGB },
+      { key: "p", name: "单层预取权重 FP32", note: "(Attn+专家×(N/EP))×3.725GB/B", v: prefetchW },
       { key: "t", name: "单层临时梯度 FP32", note: "= 预取权重",    v: tempG }
     ];
     renderList("card-list", cardRows, cardTotal);
@@ -1114,6 +1123,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
     });
     $("recompute").checked = !!v.recompute;
     $("swap").checked = !!v.swap;
+    $("swapact").checked = !!v.swapact;
   }
 
   function setMsg(text, kind) {
@@ -1181,7 +1191,8 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
       fsdpDtype: n(nw, ["fsdpDtype"]),
       util:      n(nw, ["util", "bandwidthUtil"]),
       recompute: b(o, ["recompute"], true),
-      swap:      b(o, ["swapOptimizer", "swap"], false)
+      swap:      b(o, ["swapOptimizer", "swap"], false),
+      swapact:   b(o, ["swapActivation", "swapact"], false)
     };
     var bad = false, i;
     ["attn", "exp", "nExp", "layers", "fsdp", "ep", "efsdp", "cp"].forEach(function (k) {
@@ -1245,7 +1256,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
                  interBW: num("interBW"),
                  fsdpDtype: num("fsdpDtype"),
                  util: num("util") },
-      options: { recompute: checked("recompute"), swapOptimizer: checked("swap") }
+      options: { recompute: checked("recompute"), swapOptimizer: checked("swap"), swapActivation: checked("swapact") }
     };
   }
 
@@ -1276,7 +1287,7 @@ Layer Input (GB) = 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 
   var INPUTS = ["attn", "exp", "nExp", "layers", "seqLen", "hidden", "moeHidden", "topk", "act",
                 "fsdp", "ep", "efsdp", "cp", "hbm",
                 "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype", "util",
-                "recompute", "swap"];
+                "recompute", "swap", "swapact"];
   INPUTS.forEach(function (id) {
     var el = $(id);
     el.addEventListener("input", function () { presetToCustom(); compute(); });
