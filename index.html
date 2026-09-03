@@ -704,12 +704,12 @@
 总优化器 2×FP32 (GiB) = 总模型权重 FP32 (GiB) × 2（集群口径不随 SwapOptimizer 变化）
 总静态显存 (GiB) = 权重 + 梯度 + 优化器</code>
       <code>总动态激活 (GiB) = 单层动态激活 / CP × 层数</code>
-      <code>单卡模型权重 FP32 (GiB) = (单层 Attention 参数量 / FSDP + 单个专家参数量 × 专家数量) × 层数 / (EP × EFSDP) × (4×10⁹/1024³)</code>
+      <code>单卡模型权重 FP32 (GiB) = (单层 Attention 参数量 / FSDP + ((单个专家参数量 × 专家数量) / (EP × EFSDP))) × 层数 × (4×10⁹/1024³)</code>
       <code>单卡模型梯度 FP32 (GiB) = 单卡模型权重 FP32 (GiB)
 单卡优化器 2×FP32 (GiB) = 单卡模型权重 FP32 (GiB) × 2；SwapOptimizer=True 时 = 0（优化器交换至 Host，不占显存）</code>
       <code>单卡动态激活 (GiB) = Recompute ? 总动态激活 / 层数 : 总动态激活</code>
-      <code>单层预取权重 FP32 (GiB) = (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × (4×10⁹/1024³)
-单层临时梯度 FP32 (GiB) = 单层预取权重 FP32 (GiB)
+      <code>单层预取权重 BF16 (GiB) = (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × (2×10⁹/1024³)
+单层临时梯度 FP32 (GiB) = 单层预取权重 BF16 (GiB) × 2
 Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 1024³</code>
       <code>单卡总显存 (GiB) = 权重 + 梯度 + 优化器 + 动态激活 + Layer Input + 预取权重 + 临时梯度</code>
       <code>EP Alltoall（均衡）：
@@ -868,14 +868,15 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     var clusterTotal = totalStatic + totalAct;
 
     /* ----- 单卡维度 ----- */
-    /* 单卡权重 = (单层Attn/FSDP + 单专家×专家数) × 层数 / (EP×EFSDP) × 换算系数 */
-    var cardW = (attnB / fsdp + expertsPB) * layers / (ep * efsdp) * GB_PER_B;
+    /* 单卡权重 = (单层Attn/FSDP + 单专家×专家数/(EP×EFSDP)) × 层数 × 换算系数 */
+    var cardW = (attnB / fsdp + expertsPB / (ep * efsdp)) * layers * GB_PER_B;
     var cardG = cardW;
     var cardO = swap ? 0 : cardW * 2;               /* SwapOptimizer=True：交换出卡 → 0 */
     var cardAct = recompute ? totalAct / layers : totalAct;
-    /* 单层预取权重 = (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × 换算系数 */
-    var prefetchW = (attnB + expB * (nExp / ep)) * GB_PER_B;
-    var tempG     = prefetchW;
+    /* 单层预取权重 BF16 = (单层 Attn + 单专家 × 专家数/EP) × (2×10⁹/1024³) */
+    var BF16_PER_B = 2 * 1e9 / Math.pow(1024, 3);
+    var prefetchW = (attnB + expB * (nExp / ep)) * BF16_PER_B;
+    var tempG     = prefetchW * 2;   /* 单层临时梯度 FP32 = 预取权重 BF16 × 2 */
     /* Layer Input(层输入) = SwapActivation ? 0 : 序列长度 × hidden size × 层数 × 激活字节数 / 1024³ */
     var layerInputGB = swapact
       ? 0
@@ -912,7 +913,7 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     $("kpi-totalw").textContent = fmtGB(totalW);
     $("kpi-totalw-sub").textContent = "总参数量 " + fmt(totalParamsB, 1) + " B（" + fmt(layerWB, 2) + " B/层）· FP32 1B≈3.725GiB";
     $("kpi-cardw").textContent = fmtGB(cardW);
-    $("kpi-cardw-sub").textContent = "(单层Attn/FSDP + 全量专家) × 层数 / (EP×EFSDP)";
+    $("kpi-cardw-sub").textContent = "(单层Attn/FSDP + 专家×(N)/(EP×EFSDP)) × 层数";
     $("kpi-total").textContent = fmtGB(cardTotal);
 
     var hbmEl = $("kpi-hbm");
@@ -944,8 +945,8 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
       { key: "o", name: "优化器 2×FP32",    note: swap ? "SwapOptimizer：交换出卡，不占显存" : "= 单卡权重 × 2", v: cardO },
       { key: "a", name: "动态激活",          note: recompute ? "Recompute：总激活/层数" : "无 Recompute：总激活", v: cardAct },
       { key: "l", name: "Layer Input(层输入)", note: swapact ? "SwapActivation：交换出卡，不占显存" : "seq×hidden×层数×2B/1024³", v: layerInputGB },
-      { key: "p", name: "单层预取权重 FP32", note: "(Attn+专家×(N/EP))×3.725GiB/B", v: prefetchW },
-      { key: "t", name: "单层临时梯度 FP32", note: "= 预取权重",    v: tempG }
+      { key: "p", name: "单层预取权重 BF16", note: "(Attn+专家×(N/EP))×(2×10⁹/1024³)", v: prefetchW },
+      { key: "t", name: "单层临时梯度 FP32", note: "= 预取权重 BF16 × 2", v: tempG }
     ];
     renderList("card-list", cardRows, cardTotal);
     renderStack("card-stack", "card-legend", cardRows, cardTotal);
