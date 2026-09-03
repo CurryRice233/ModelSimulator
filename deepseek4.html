@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeekV4 参数量与动态激活显存</title>
+<style>
+  :root {
+    --ink: #1e293b; --ink-2: #5b6b84; --muted: #64748b;
+    --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.78);
+    --glass-border: rgba(255,255,255,.9); --line: #dbe4f0;
+    --shadow: 0 10px 34px rgba(15,23,42,.10); --shadow-lg: 0 18px 48px rgba(15,23,42,.14);
+    --radius: 20px;
+    --sky: #0ea5e9; --violet: #8b5cf6; --teal: #10b981; --orange: #f97316; --pink: #ec4899; --red: #ef4444;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, Menlo, monospace;
+    --c-w: #0ea5e9; --c-g: #8b5cf6; --c-o: #10b981; --c-a: #f97316; --c-e: #ec4899; --c-m: #84cc16; --c-t: #f59e0b; --c-l: #22d3ee;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: #eef4ff; }
+  body {
+    color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh; line-height: 1.55; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+    background:
+      radial-gradient(1100px 620px at 10% -10%, #bae6fd 0%, transparent 55%),
+      radial-gradient(940px 680px at 98% 12%, #fbcfe8 0%, transparent 55%),
+      radial-gradient(1100px 820px at 50% 115%, #fef08a 0%, transparent 58%),
+      linear-gradient(135deg, #e0f2fe 0%, #fdf4ff 48%, #fffbeb 100%);
+    background-attachment: fixed;
+  }
+  .blob { position: fixed; border-radius: 50%; filter: blur(70px); opacity: .5; z-index: -1;
+          animation: drift 15s ease-in-out infinite; pointer-events: none; }
+  .b1 { width: 360px; height: 360px; background: #7dd3fc; top: -90px; left: -70px; }
+  .b2 { width: 310px; height: 310px; background: #f9a8d4; top: 18%; right: -100px; animation-delay: -5s; }
+  .b3 { width: 400px; height: 400px; background: #fde68a; bottom: -140px; left: 24%; animation-delay: -9s; }
+  @keyframes drift { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(32px,-22px) scale(1.08); } }
+
+  #rightPanel {
+    position: fixed; top: 0; right: 0; z-index: 10; width: 400px; height: 100vh; overflow-y: auto;
+    overscroll-behavior: contain; padding: 26px 24px 40px;
+    background: var(--glass); -webkit-backdrop-filter: blur(24px) saturate(1.5); backdrop-filter: blur(24px) saturate(1.5);
+    border-left: 1px solid var(--glass-border);
+    border-top-left-radius: var(--radius); border-bottom-left-radius: var(--radius);
+    box-shadow: -20px 0 50px rgba(15,23,42,.12);
+  }
+  #rightPanel::-webkit-scrollbar { width: 7px; }
+  #rightPanel::-webkit-scrollbar-track { background: transparent; }
+  #rightPanel::-webkit-scrollbar-thumb { background: #c3d2e8; border-radius: 4px; }
+  .panelTitle { font-size: 17px; font-weight: 800; color: var(--ink); padding-bottom: 13px; margin-bottom: 6px;
+    border-bottom: 2px solid rgba(14,165,233,.25); display: flex; align-items: center; gap: 8px; }
+  .panel-section { margin-top: 20px; }
+  .panel-section h3 { font-size: 13.5px; font-weight: 700; color: var(--violet); letter-spacing: .3px;
+    margin-bottom: 11px; display: flex; align-items: center; gap: 6px; }
+  .panel-section h3 .tl-note { font-size: 11px; font-weight: 400; color: #94a3b8; margin-left: auto; }
+  .cfg-label { display: block; font-size: 12px; color: var(--ink-2); font-weight: 600; margin-bottom: 7px; }
+  select#preset {
+    width: 100%; appearance: none; -webkit-appearance: none;
+    background: rgba(255,255,255,.75)
+      url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2364748b' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E")
+      no-repeat right 12px center;
+    border: 1.5px solid var(--line); border-radius: 10px; color: var(--ink);
+    padding: 9px 32px 9px 10px; font-size: 13.5px; font-weight: 600;
+    outline: none; cursor: pointer; transition: border-color .15s, box-shadow .15s;
+  }
+  select#preset:focus { border-color: var(--sky); box-shadow: 0 0 0 3.5px rgba(14,165,233,.18); }
+  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+  .field label .note { color: #94a3b8; font-size: 11px; font-weight: 400; }
+  .unitbox { position: relative; }
+  .unitbox input {
+    width: 100%; background: rgba(255,255,255,.75); color: var(--ink);
+    border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 8px 44px 8px 10px; font-size: 14px; font-family: var(--mono);
+    outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  .unitbox input:focus { border-color: var(--sky); box-shadow: 0 0 0 3.5px rgba(14,165,233,.18); }
+  .unitbox .unit { position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    font-size: 11.5px; color: #8fa3c0; pointer-events: none; }
+  .toolbar { display: flex; justify-content: flex-end; margin-top: 18px; }
+  button {
+    background: linear-gradient(90deg, var(--sky), var(--violet)); color: #fff; border: none;
+    border-radius: 11px; padding: 9px 20px; font-size: 13.5px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 6px 18px rgba(14,165,233,.35); transition: transform .12s, box-shadow .15s, filter .15s;
+  }
+  button:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 9px 22px rgba(139,92,246,.4); }
+
+  #centerPanel { margin-right: 430px; padding: 30px 30px 60px; }
+  @media (max-width: 1200px) { #rightPanel { width: 350px; } #centerPanel { margin-right: 380px; } }
+  @media (max-width: 1080px) {
+    #centerPanel { margin-right: 0; padding: 22px 16px 50px; }
+    #rightPanel { position: static; width: auto; height: auto; max-height: none;
+      margin: 16px 16px 0; border: 1px solid var(--glass-border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  }
+  header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
+  header h1 { font-size: 26px; font-weight: 800; letter-spacing: .5px;
+    background: linear-gradient(90deg, #0284c7, #7c3aed 60%, #db2777);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header .sub { color: var(--ink-2); font-size: 13.5px; margin-top: 6px; }
+  .navlink { font-size: 12.5px; font-weight: 700; color: #0369a1; text-decoration: none;
+    background: var(--glass-strong); border: 1.5px solid rgba(14,165,233,.35);
+    padding: 5px 14px; border-radius: 999px; white-space: nowrap; box-shadow: var(--shadow);
+    display: inline-block; transition: transform .12s, box-shadow .15s; }
+  .navlink:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+  .sync-msg { font-size: 11.5px; color: #059669; font-weight: 700; text-align: right; max-width: 340px; }
+  .sync-msg.err { color: #dc2626; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+  @media (max-width: 920px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  .kpi { background: var(--glass-strong); border: 1px solid var(--glass-border); border-radius: 18px;
+    padding: 15px 17px; position: relative; overflow: hidden; box-shadow: var(--shadow); }
+  .kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, var(--sky), var(--violet)); }
+  .kpi:nth-child(2)::before { background: linear-gradient(180deg, var(--violet), var(--pink)); }
+  .kpi:nth-child(3)::before { background: linear-gradient(180deg, var(--teal), var(--sky)); }
+  .kpi:nth-child(4)::before { background: linear-gradient(180deg, var(--orange), var(--pink)); }
+  .kpi .k-label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+  .kpi .k-value { font-family: var(--mono); font-size: 20px; font-weight: 800; margin-top: 4px; color: #0284c7; }
+  .kpi:nth-child(2) .k-value { color: #7c3aed; }
+  .kpi:nth-child(3) .k-value { color: #059669; }
+  .kpi:nth-child(4) .k-value { color: #ea580c; }
+  .kpi .k-sub { font-size: 11.5px; color: #7c8ba3; margin-top: 2px; }
+
+  .card { background: var(--glass); border: 1px solid var(--glass-border); border-radius: var(--radius);
+    padding: 22px 22px 18px; box-shadow: var(--shadow);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); }
+  .card + .card { margin-top: 16px; }
+  .card h2 { font-size: 15px; font-weight: 800; letter-spacing: .3px; color: var(--ink);
+    margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .card h2::before { content: ""; width: 5px; height: 16px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--sky), var(--violet)); }
+
+  .mem-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 6px; }
+  @media (max-width: 1000px) { .mem-compare { grid-template-columns: 1fr; } }
+  .comm-col { background: rgba(255,255,255,.5); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 14px 10px; }
+  .comm-col h3 { font-size: 13.5px; font-weight: 800; color: var(--ink);
+    display: flex; align-items: center; gap: 7px; padding-bottom: 9px; margin-bottom: 10px;
+    border-bottom: 2px solid rgba(14,165,233,.2); }
+  .comm-col h3 small { font-weight: 400; font-size: 11px; color: #94a3b8; }
+
+  .breakdown { list-style: none; margin-top: 6px; }
+  .breakdown li { padding: 8px 0; border-bottom: 1.5px dashed var(--line); }
+  .breakdown li:last-child { border-bottom: none; }
+  .row-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .row-top .name { color: var(--ink); font-weight: 600; flex: 1; }
+  .row-top .name small { color: #94a3b8; font-size: 11px; font-weight: 400; margin-left: 6px; }
+  .row-top .val { font-family: var(--mono); font-size: 13px; font-weight: 700; color: #0369a1; }
+  .row-top .pct { font-family: var(--mono); font-size: 11.5px; color: #8fa3c0; width: 52px; text-align: right; }
+  .dot { width: 10px; height: 10px; border-radius: 4px; flex: none; }
+  .bar { height: 8px; border-radius: 999px; background: #e6edf7; margin-top: 7px; overflow: hidden; display: flex; }
+  .bar i { height: 100%; transition: width .25s ease; border-radius: 999px; }
+
+  .section-total { display: flex; justify-content: space-between; align-items: baseline;
+    padding-top: 13px; margin-top: 6px; border-top: 2px solid var(--line); }
+  .section-total .t-label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+  .section-total .t-value { font-family: var(--mono); font-size: 17px; font-weight: 800; color: var(--sky); }
+  .section-total-lg .t-label { font-size: 15px; font-weight: 800; color: var(--ink); }
+  .section-total-lg .t-value { font-size: 24px; font-weight: 900; color: #0284c7; }
+
+  .stack { height: 26px; border-radius: 10px; overflow: hidden; display: flex; margin: 14px 0 7px;
+    background: #e6edf7; border: 1.5px solid var(--line); }
+  .stack i { height: 100%; transition: width .25s ease; }
+  .stack-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--ink-2); }
+  .stack-legend span { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+
+  details.formulas { margin-top: 20px; }
+  details.formulas summary { cursor: pointer; font-size: 13.5px; font-weight: 700; color: #0369a1;
+    padding: 10px 0; user-select: none; list-style: none; }
+  details.formulas summary::-webkit-details-marker { display: none; }
+  details.formulas summary::before { content: "▸ "; }
+  details[open].formulas summary::before { content: "▾ "; }
+  details.formulas .f-body { background: var(--glass-strong); border: 1px solid var(--glass-border);
+    border-radius: 14px; padding: 15px 17px; font-size: 12.5px; color: var(--ink-2); box-shadow: var(--shadow); }
+  details.formulas .f-body code { font-family: var(--mono); color: var(--ink); background: #eef4ff;
+    display: block; padding: 7px 11px; border-radius: 8px; margin: 7px 0; font-size: 12px;
+    white-space: pre-wrap; border-left: 3px solid var(--sky); }
+  footer { margin-top: 28px; font-size: 12px; color: #8fa3c0; text-align: center; }
+</style>
+</head>
+<body>
+
+<i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i>
+
+<aside id="rightPanel">
+  <p class="panelTitle">🔧 DeepSeekV4 结构 · 训练配置</p>
+
+  <section class="panel-section">
+    <h3>💾 预设</h3>
+    <label class="cfg-label" for="preset">结构预设</label>
+    <select id="preset">
+      <option value="v4pro" selected>★ DeepSeekV4 10T（v4pro 口径）</option>
+      <option value="v4flash">v4flash 参考口径</option>
+      <option value="custom">✏️ 自定义</option>
+    </select>
+  </section>
+
+  <section class="panel-section">
+    <h3>🕸 DSA Attn / MLA 结构</h3>
+    <div class="field-grid">
+      <div class="field"><label for="h">Hidden Size</label><div class="unitbox"><input id="h" type="number" step="any" min="0" value="7168"><span class="unit"></span></div></div>
+      <div class="field"><label for="v">Vocab Size</label><div class="unitbox"><input id="v" type="number" step="1" min="0" value="129280"><span class="unit"></span></div></div>
+      <div class="field"><label for="ql">q_lora_rank</label><div class="unitbox"><input id="ql" type="number" step="1" min="0" value="1536"><span class="unit"></span></div></div>
+      <div class="field"><label for="kl">kv_lora_rank</label><div class="unitbox"><input id="kl" type="number" step="1" min="0" value="512"><span class="unit"></span></div></div>
+      <div class="field"><label for="nmla">num_head (n_mla)</label><div class="unitbox"><input id="nmla" type="number" step="1" min="0" value="128"><span class="unit"></span></div></div>
+      <div class="field"><label for="qkd">qk_head_dim <span class="note">（显存峰值用）</span></label><div class="unitbox"><input id="qkd" type="number" step="1" min="0" value="512"><span class="unit"></span></div></div>
+      <div class="field"><label for="og">o_groups</label><div class="unitbox"><input id="og" type="number" step="1" min="1" value="16"><span class="unit"></span></div></div>
+      <div class="field"><label for="ol">o_lora_rank</label><div class="unitbox"><input id="ol" type="number" step="1" min="0" value="1024"><span class="unit"></span></div></div>
+      <div class="field"><label for="mix">mix_hc</label><div class="unitbox"><input id="mix" type="number" step="1" min="0" value="24"><span class="unit"></span></div></div>
+      <div class="field"><label for="hcm">hc_mult</label><div class="unitbox"><input id="hcm" type="number" step="1" min="0" value="4"><span class="unit"></span></div></div>
+    </div>
+  </section>
+
+  <section class="panel-section">
+    <h3>🧩 层次分布</h3>
+    <div class="field-grid">
+      <div class="field"><label for="Ld">dense 层数</label><div class="unitbox"><input id="Ld" type="number" step="1" min="0" value="0"><span class="unit">层</span></div></div>
+      <div class="field"><label for="Lm">MoE 层数</label><div class="unitbox"><input id="Lm" type="number" step="1" min="0" value="61"><span class="unit">层</span></div></div>
+      <div class="field"><label for="Lmtp">MTP 层数</label><div class="unitbox"><input id="Lmtp" type="number" step="1" min="0" value="0"><span class="unit">层</span></div></div>
+      <div class="field"><label for="Li">Indexer 层数</label><div class="unitbox"><input id="Li" type="number" step="1" min="0" value="30"><span class="unit">层</span></div></div>
+      <div class="field"><label for="nih">index_n_heads</label><div class="unitbox"><input id="nih" type="number" step="1" min="0" value="64"><span class="unit"></span></div></div>
+      <div class="field"><label for="nid">index_head_dim</label><div class="unitbox"><input id="nid" type="number" step="1" min="0" value="128"><span class="unit"></span></div></div>
+      <div class="field"><label for="Lc4">Compressor=4 层数</label><div class="unitbox"><input id="Lc4" type="number" step="1" min="0" value="30"><span class="unit">层</span></div></div>
+      <div class="field"><label for="Lc128">Compressor=128 层数</label><div class="unitbox"><input id="Lc128" type="number" step="1" min="0" value="31"><span class="unit">层</span></div></div>
+    </div>
+  </section>
+
+  <section class="panel-section">
+    <h3>🧠 MoE</h3>
+    <div class="field-grid">
+      <div class="field"><label for="fe">expert_hidden_size</label><div class="unitbox"><input id="fe" type="number" step="1" min="0" value="4096"><span class="unit"></span></div></div>
+      <div class="field"><label for="nr">router_expert_num</label><div class="unitbox"><input id="nr" type="number" step="1" min="0" value="2048"><span class="unit"></span></div></div>
+      <div class="field"><label for="ns">shared_expert_num</label><div class="unitbox"><input id="ns" type="number" step="1" min="0" value="2"><span class="unit"></span></div></div>
+      <div class="field"><label for="k">TopK</label><div class="unitbox"><input id="k" type="number" step="1" min="0" value="30"><span class="unit"></span></div></div>
+      <div class="field"><label for="re">expert_up_ratio</label><div class="unitbox"><input id="re" type="number" step="1" min="1" value="2"><span class="unit"></span></div></div>
+    </div>
+  </section>
+
+  <section class="panel-section">
+    <h3>⚙ 训练 / 显存</h3>
+    <div class="field-grid">
+      <div class="field"><label for="s">seq_len (s)</label><div class="unitbox"><input id="s" type="number" step="1" min="0" value="4096"><span class="unit">tok</span></div></div>
+      <div class="field"><label for="b">micro_batch (b)</label><div class="unitbox"><input id="b" type="number" step="1" min="0" value="1"><span class="unit"></span></div></div>
+      <div class="field"><label for="tp">TP</label><div class="unitbox"><input id="tp" type="number" step="1" min="1" value="1"><span class="unit"></span></div></div>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <button id="reset" type="button">↺ 重置为 v4pro</button>
+  </div>
+</aside>
+
+<main id="centerPanel">
+  <header>
+    <div>
+      <h1>DeepSeekV4 · 参数量与动态激活显存</h1>
+      <div class="sub">DeepSeekV4 参数量 / 激活参数量 / 动态激活显存 · 输入实时计算，无需刷新</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="btn-sync" type="button" style="padding:6px 14px;font-size:12.5px;">⇢ 同步到仿真器</button>
+        <a class="navlink" href="./index.html">‹ 返回仿真器主界面</a>
+      </div>
+      <div id="sync-msg" class="sync-msg"></div>
+    </div>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k-label">模型总参数量</div>
+      <div class="k-value" id="kpi-params">—</div>
+      <div class="k-sub" id="kpi-params-sub"></div></div>
+    <div class="kpi"><div class="k-label">模型激活参数量</div>
+      <div class="k-value" id="kpi-act">—</div>
+      <div class="k-sub" id="kpi-act-sub">随 TopK 激活的权重</div></div>
+    <div class="kpi"><div class="k-label">单层动态激活（峰值）</div>
+      <div class="k-value" id="kpi-per">—</div>
+      <div class="k-sub" id="kpi-per-sub">attention + MoE + mhc</div></div>
+    <div class="kpi"><div class="k-label">总动态激活（×MoE 层数）</div>
+      <div class="k-value" id="kpi-dyn">—</div>
+      <div class="k-sub" id="kpi-dyn-sub"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>📐 参数量分解</h2>
+    <div class="mem-compare">
+      <div class="comm-col">
+        <h3>🧩 静态参数量 <small>全部权重</small></h3>
+        <ul class="breakdown" id="params-list"></ul>
+        <div class="stack" id="params-stack"></div>
+        <div class="stack-legend" id="params-legend"></div>
+        <div class="section-total section-total-lg">
+          <span class="t-label">模型总参数量</span>
+          <span class="t-value" id="params-total">—</span>
+        </div>
+      </div>
+      <div class="comm-col">
+        <h3>🔥 激活参数量 <small>每 token 实际使用的权重</small></h3>
+        <ul class="breakdown" id="act-list"></ul>
+        <div class="stack" id="act-stack"></div>
+        <div class="stack-legend" id="act-legend"></div>
+        <div class="section-total section-total-lg">
+          <span class="t-label">模型激活参数量</span>
+          <span class="t-value" id="act-total">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>⚡ 动态激活显存分解（单位 GiB，BF16=2B / FP32=4B）</h2>
+    <div class="mem-compare">
+      <div class="comm-col">
+        <h3>🎯 Attention 临时<small>含 mhc · 单层 · s×b×…</small></h3>
+        <ul class="breakdown" id="dyn-attn-list"></ul>
+        <div class="section-total">
+          <span class="t-label">单层 Attention 临时合计</span>
+          <span class="t-value" id="dyn-attn-total">—</span>
+        </div>
+      </div>
+      <div class="comm-col">
+        <h3>🧠 MoE 临时<small>含 mhc · 单层 · TopK 激活</small></h3>
+        <ul class="breakdown" id="dyn-moe-list"></ul>
+        <div class="section-total">
+          <span class="t-label">单层 MoE 临时合计</span>
+          <span class="t-value" id="dyn-moe-total">—</span>
+        </div>
+      </div>
+    </div>
+    <ul class="breakdown" id="dyn-extra-list" style="margin-top:10px;"></ul>
+    <div class="stack" id="dyn-stack"></div>
+    <div class="stack-legend" id="dyn-legend"></div>
+    <div class="section-total section-total-lg">
+      <span class="t-label">单层动态激活（含 mhc 两侧峰值）· 总动态激活 = 单层 × MoE 层数</span>
+      <span class="t-value" id="dyn-total">—</span>
+    </div>
+  </div>
+
+  <details class="formulas">
+    <summary>📐 查看全部计算公式</summary>
+    <div class="f-body">
+      参数量单位 B（= 10⁹ 参数）；显存单位 GiB（= 1024³ 字节）。公式字段与右侧输入框一一对应：
+      h=Hidden Size、v=Vocab Size、ql=q_lora_rank、kl=kv_lora_rank、nmla=num_head、qkd=qk_head_dim、
+      og=o_groups、ol=o_lora_rank、mix=mix_hc、hcm=hc_mult、Ld=dense 层数、Lm=MoE 层数、Lmtp=MTP 层数、
+      Li=Indexer 层数、nih=index_n_heads、nid=index_head_dim、Lc4=Compressor=4 层数、Lc128=Compressor=128 层数、
+      fe=expert_hidden_size、nr=router_expert_num、ns=shared_expert_num、k=TopK、re=expert_up_ratio、
+      s=seq_len、b=micro_batch、tp=TP。
+      <code>单层 DSA Attn 参数 = h·kl + h·ql + ql·(nmla·kl)
+  + (nmla·kl/og)·(og·ol) + (og·ol)·h
+  + 2·mix·hcm·h（mhc 模块 = attn_fn + mlp_fn）
+Indexer 单层 = ql·(nih·nid) + h·nih
+Compressor=4 单层 = 4·h·nid + 4·h·kl
+Compressor=128 单层 = 2·h·nid + 2·h·kl
+单个专家 = h·(fe·re) + fe·h
+MoE routed = nr × 单个专家；MoE shared = ns × 单个专家
+模型总参数量 = v·h
+  + (Ld+Lm)·(DSA Attn 单层 + MoE routed + MoE shared)
+  + Li·Indexer 单层 + Lc4·Compressor4 单层 + Lc128·Compressor128 单层
+模型激活参数量 = v·h
+  + Lm·(DSA Attn 单层 + k·单个专家 + ns·单个专家)</code>
+      <code>动态激活（单层，GiB）：
+layer input = s·b·hcm·h·2B
+logits = s·b·(v/tp)·2B；cross_entropy = s·b·(v/tp)·4B；loss 峰值 = logits + 2×cross_entropy
+q_comp = s·b·ql·2B；kv_comp = s·b·kl·2B
+q_full = attn_o = o_clone = s·b·nmla·qkd/tp·2B
+o_down = s·b·og·ol/tp·2B；core_out = s·b·h/tp·2B
+mhc：mhc_x_fp32 = s·b·hcm·h·4B；mhc_y = s·b·h·2B；mhc_post_out = s·b·hcm·h·2B
+router = s·b·nr·k（字节）
+dispatch = expert_out = combine = s·b·k·h·2B
+expert_fc1 = s·b·k·(2·fe)·2B；expert_fc2 = s·b·k·fe·2B；shared_fc1 = s·b·(2·fe)·2B
+单层 Attention 临时 = q_comp + kv_comp + q_full + attn_o + o_clone + o_down + core_out
+  + mhc（attention 图峰值保留一份）
+单层 MoE 临时 = router + dispatch + expert_fc1 + expert_fc2 + expert_out
+  + shared_fc1 + combine + mhc（MoE 图峰值保留一份）
+单层激活 = Attention 临时 + MoE 临时
+总激活 = 单层激活 × Lm
+重计算保存层输入 = (Lm + Lmtp) × layer input</code>
+    </div>
+  </details>
+
+  <footer>DeepSeekV4 参数量与动态激活显存 · 实时计算</footer>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+
+  var PRESETS = [
+    { id: "v4pro", name: "DeepSeekV4 10T（v4pro）",
+      values: { h: 7168, v: 129280, ql: 1536, kl: 512, nmla: 128, qkd: 512, og: 16, ol: 1024, mix: 24, hcm: 4,
+           Ld: 0, Lm: 96, Lmtp: 0, Li: 30, nih: 64, nid: 128, Lc4: 30, Lc128: 31,
+           fe: 4096, nr: 1024, ns: 1, k: 16, re: 2,
+           s: 4096, b: 1, tp: 1 } }
+  ];
+  var DEFAULT = { h: 7168, v: 129280, ql: 1536, kl: 512, nmla: 128, qkd: 512, og: 16, ol: 1024, mix: 24, hcm: 4,
+    Ld: 0, Lm: 96, Lmtp: 0, Li: 30, nih: 64, nid: 128, Lc4: 30, Lc128: 31,
+    fe: 4096, nr: 1024, ns: 1, k: 16, re: 2,
+    s: 4096, b: 1, tp: 1 };
+  var LAST = null;
+
+  var COLORS = { e: "#0ea5e9", a: "#8b5cf6", i: "#10b981", c: "#f97316", m: "#ec4899",
+                 r: "#84cc16", sh: "#f59e0b", o: "#22d3ee", x: "#fb7185", g: "#64748b" };
+
+  function num(id) { var v = parseFloat($(id).value); return isFinite(v) ? v : 0; }
+  function fmt(n, d) {
+    d = d === undefined ? 2 : d;
+    if (!isFinite(n)) return "—";
+    return n.toLocaleString("en-US", { maximumFractionDigits: d });
+  }
+  /* 参数量 B 显示：主单位 B，≥1000 附带 T */
+  function fmtB(n, d) {
+    d = d === undefined ? 3 : d;
+    if (!isFinite(n)) return "—";
+    var s = fmt(n, d) + " B";
+    if (Math.abs(n) >= 1000) s += "（" + fmt(n / 1000, 2) + " T）";
+    return s;
+  }
+  function fmtGiB(n, d) {
+    d = d === undefined ? 4 : d;
+    if (!isFinite(n)) return "—";
+    return fmt(n, d) + " GiB";
+  }
+
+  /* ---------- 核心计算 ---------- */
+  function compute() {
+    var h = num("h"), v = num("v"), ql = num("ql"), kl = num("kl"), nmla = num("nmla"), qkd = num("qkd"),
+        og = Math.max(1, num("og")), ol = num("ol"), mix = num("mix"), hcm = num("hcm");
+    var Ld = Math.max(0, num("Ld")), Lm = Math.max(0, num("Lm")), Lmtp = Math.max(0, num("Lmtp")),
+        Li = Math.max(0, num("Li")), nih = num("nih"), nid = num("nid"),
+        Lc4 = Math.max(0, num("Lc4")), Lc128 = Math.max(0, num("Lc128"));
+    var fe = num("fe"), nr = num("nr"), ns = num("ns"), k = num("k"), re = Math.max(1, num("re"));
+    var s = Math.max(0, num("s")), b = Math.max(0, num("b")), tp = Math.max(1, num("tp"));
+
+    /* ---- 参数量（B = 1e9 参数） ---- */
+    var embB   = v * h / 1e9;
+    var attnB  = (h * kl + h * ql + ql * (nmla * kl) + (nmla * kl / og) * (og * ol) + (og * ol) * h) / 1e9;
+    var mhcB   = (2 * mix * hcm * h) / 1e9;
+    var idxB   = (ql * (nih * nid) + h * nih) / 1e9;
+    var c4B    = (4 * h * nid + 4 * h * kl) / 1e9;
+    var c128B  = (2 * h * nid + 2 * h * kl) / 1e9;
+    var exB    = (h * fe * re + fe * h) / 1e9;
+    var routedB = nr * exB;
+    var shareB  = ns * exB;
+
+    var layerMoE = attnB + mhcB + routedB + shareB; /* 单层（attn + MoE；Indexer/Compressor 按各自层数计） */
+    var totalB = embB + (Ld + Lm) * layerMoE + Li * idxB + Lc4 * c4B + Lc128 * c128B;
+    var actB = embB + Lm * (attnB + mhcB + k * exB + ns * exB);
+
+    /* ---- 动态激活（GiB = 1024³ 字节） ---- */
+    var G = Math.pow(1024, 3);
+    var layerInput  = s * b * hcm * h * 2 / G;
+    var qComp   = s * b * ql * 2 / G;
+    var kvComp  = s * b * kl * 2 / G;
+    var qFull   = s * b * nmla * qkd / tp * 2 / G;
+    var attnO   = qFull;
+    var oClone  = qFull;
+    var oDown   = s * b * og * ol / tp * 2 / G;
+    var coreOut = s * b * h / tp * 2 / G;
+    var attnTmp = qComp + kvComp + qFull + attnO + oClone + oDown + coreOut;
+
+    var mhcX    = s * b * hcm * h * 4 / G;
+    var mhcY    = s * b * h * 2 / G;
+    var mhcPost = s * b * hcm * h * 2 / G;
+    var mhcTmp  = mhcX + mhcY + mhcPost;
+
+    var router  = s * b * nr * k / G;   /* calibrate: s·b·n_router·TopK bytes（核对 dsk4 五页 router 值） */
+    var dispatch = s * b * k * h * 2 / G;
+    var fc1     = s * b * k * (2 * fe) * 2 / G;
+    var fc2     = s * b * k * fe * 2 / G;
+    var eOut    = s * b * k * h * 2 / G;
+    var shFc1   = s * b * (2 * fe) * 2 / G;
+    var comb    = s * b * k * h * 2 / G;
+    var attnCore = attnTmp;                        /* attention 核心 7 项 */
+    var moeCore  = router + dispatch + fc1 + fc2 + eOut + shFc1 + comb;
+    attnTmp = attnCore + mhcTmp;                   /* 表 G40：Attention 临时（含 mhc） */
+    var moeTmp  = moeCore + mhcTmp;                /* 表 G49：MoE 临时（含 mhc） */
+    var perLayerDyn = attnTmp + moeTmp;            /* 表 J43 单层激活 */
+    var totalDyn = perLayerDyn * Lm;               /* 表 J44 总激活 */
+    var logits = s * b * (v / tp) * 2 / G;
+    var ce = s * b * (v / tp) * 4 / G;
+    var lossPeak = logits + 2 * ce;                /* 表 J25 main+mtp loss 峰值 */
+    var reconLayerInput = (Lm + Lmtp) * layerInput;
+
+    /* 供“同步到仿真器”使用：attn=单层 DSA Attn 参数量、exp=单专家、act=单层动态激活(GiB)，
+       并携带结构字段，保证主界面与 v4pro 口径一致（层数/专家数/维度/序列长度） */
+    LAST = {
+      attn: attnB + mhcB, exp: exB, act: perLayerDyn,   /* 统一按 GiB（1024³）口径，不再换算 GiB */
+      layers: Lm + Ld, nExp: nr, topk: k, moeHidden: fe, hidden: h, seqLen: s
+    };
+
+    /* ---------- KPI ---------- */
+    $("kpi-params").textContent = fmtB(totalB);
+    $("kpi-params-sub").textContent = "含 Embedding / DSA Attn / Indexer / Compressor / MoE";
+    $("kpi-act").textContent = fmtB(actB);
+    $("kpi-act-sub").textContent = "全量 Attn + TopK×单专家 + Shared×单专家";
+    $("kpi-per").textContent = fmtGiB(perLayerDyn, 4);
+    $("kpi-per-sub").textContent = "≈ " + fmtB(perLayerDyn * G / 2 / 1e9, 2) + " B 激活元素(BF16)";
+    $("kpi-dyn").textContent = fmtGiB(totalDyn, 2);
+    $("kpi-dyn-sub").textContent = "单层 " + fmtGiB(perLayerDyn, 4) + " × " + fmt(Lm, 0) + " 层";
+
+    /* ---------- 参数量分解 ---------- */
+    var pRows = [
+      { key: "e", name: "Embedding（词表）", note: "v × h", v: embB },
+      { key: "a", name: "DSA Attn（单层 ×" + fmt(Lm + Ld, 0) + "）", note: "含 mhc · ×层数", v: (attnB + mhcB) * (Lm + Ld) },
+      { key: "i", name: "Indexer（×" + fmt(Li, 0) + " 层）", note: "wq_b + weight_proj", v: idxB * Li },
+      { key: "c", name: "Compressor=4（×" + fmt(Lc4, 0) + " 层）", note: "4·h·ni_dim + 4·h·kv_lora", v: c4B * Lc4 },
+      { key: "m", name: "Compressor=128（×" + fmt(Lc128, 0) + " 层）", note: "2·h·ni_dim + 2·h·kv_lora", v: c128B * Lc128 },
+      { key: "r", name: "MoE Routed（×" + fmt(Lm + Ld, 0) + " 层）", note: fmt(nr, 0) + " 专家 × 单专家" + fmt(exB, 4) + "B", v: routedB * (Lm + Ld) },
+      { key: "sh", name: "MoE Shared（×" + fmt(Lm + Ld, 0) + " 层）", note: fmt(ns, 0) + " 专家", v: shareB * (Lm + Ld) }
+    ];
+    renderList("params-list", pRows, totalB);
+    renderStack("params-stack", "params-legend", pRows, totalB);
+    $("params-total").textContent = fmtB(totalB, 3);
+
+    /* ---------- 激活参数量分解 ---------- */
+    var perAct = attnB + mhcB + k * exB + ns * exB;
+    var aRows = [
+      { key: "e", name: "Embedding（词表共享）", note: "v × h", v: embB },
+      { key: "a", name: "DSA Attn 单层", note: "含 mhc", v: attnB + mhcB },
+      { key: "r", name: "Routed（TopK=" + fmt(k, 0) + " × 单专家" + fmt(exB, 4) + "B）", note: "单层", v: k * exB },
+      { key: "sh", name: "Shared（" + fmt(ns, 0) + " × 单专家）", note: "单层", v: ns * exB },
+      { key: "o", name: "单层激活合计 × " + fmt(Lm, 0) + " 层", note: fmtB(perAct, 4) + "B/层", v: perAct * Lm }
+    ];
+    renderList("act-list", aRows, actB);
+    renderStack("act-stack", "act-legend", aRows, actB);
+    $("act-total").textContent = fmtB(actB, 3);
+
+    /* ---------- 动态激活分解 ---------- */
+    /* 表 G40 列：Attention 核心 + mhc（attention 图峰值一份） */
+    renderList("dyn-attn-list", [
+      { key: "a", name: "q_comp", note: "s·b·Q_r·2B", v: qComp, f: fmtGiB },
+      { key: "a", name: "kv_comp", note: "s·b·kv_lora·2B", v: kvComp, f: fmtGiB },
+      { key: "a", name: "q_full = attn_o = o_clone", note: "s·b·n·qkd/TP·2B", v: qFull, f: fmtGiB },
+      { key: "a", name: "o_down", note: "s·b·og·ol/TP·2B", v: oDown, f: fmtGiB },
+      { key: "a", name: "core_out", note: "s·b·h/TP·2B", v: coreOut, f: fmtGiB },
+      { key: "x", name: "mhc（attention 侧峰值）", note: "x_fp32 + y + post_out", v: mhcTmp, f: fmtGiB }
+    ], perLayerDyn);
+    /* 表 G49 列：MoE 各项 + mhc（MoE 图峰值一份） */
+    renderList("dyn-moe-list", [
+      { key: "o", name: "router", note: "s·b·n_router·TopK 字节", v: router, f: fmtGiB },
+      { key: "o", name: "dispatch_input", note: "s·b·k·h·2B", v: dispatch, f: fmtGiB },
+      { key: "o", name: "expert_fc1_output", note: "s·b·k·(2f_e)·2B", v: fc1, f: fmtGiB },
+      { key: "o", name: "expert_fc2_inout", note: "s·b·k·f_e·2B", v: fc2, f: fmtGiB },
+      { key: "o", name: "expert_out", note: "s·b·k·h·2B", v: eOut, f: fmtGiB },
+      { key: "o", name: "shared_fc1", note: "s·b·(2f_e)·2B", v: shFc1, f: fmtGiB },
+      { key: "o", name: "combine", note: "s·b·k·h·2B", v: comb, f: fmtGiB },
+      { key: "x", name: "mhc（MoE 侧峰值）", note: "同 mhc 临时", v: mhcTmp, f: fmtGiB }
+    ], perLayerDyn);
+    renderList("dyn-extra-list", [
+      { key: "l", name: "layer input（单层）", note: "s·b·hc·h·2B", v: layerInput, f: fmtGiB },
+      { key: "l", name: "重计算保存层输入 ×(Lm+Lmtp)", note: fmtGiB(layerInput, 4) + " × " + fmt(Lm + Lmtp, 0), v: reconLayerInput, f: fmtGiB },
+      { key: "g", name: "logits", note: "s·b·(v/TP)·2B", v: logits, f: fmtGiB },
+      { key: "g", name: "cross_entropy", note: "s·b·(v/TP)·4B", v: ce, f: fmtGiB },
+      { key: "g", name: "main+mtp loss 峰值", note: "logits + 2×CE", v: lossPeak, f: fmtGiB }
+    ], totalDyn);
+    renderStack("dyn-stack", "dyn-legend", [
+      { key: "a", name: "Attention(含mhc)", v: attnTmp },
+      { key: "o", name: "MoE(含mhc)", v: moeTmp }
+    ], perLayerDyn);
+    $("dyn-attn-total").textContent = fmtGiB(attnTmp, 4);
+    $("dyn-moe-total").textContent = fmtGiB(moeTmp, 4);
+    $("dyn-total").textContent = fmtGiB(totalDyn, 2) + "（单层 " + fmtGiB(perLayerDyn, 4) + " × " + fmt(Lm, 0) + " 层）";
+  }
+
+  function renderList(id, rows, total) {
+    var html = rows.map(function (r) {
+      var pct = total > 0 ? r.v / total * 100 : 0;
+      var f = r.f || fmtB;
+      return '<li>' +
+        '<div class="row-top">' +
+          '<span class="dot" style="background:' + COLORS[r.key] + '"></span>' +
+          '<span class="name">' + r.name + '<small>' + r.note + '</small></span>' +
+          '<span class="pct">' + fmt(pct, 1) + '%</span>' +
+          '<span class="val">' + f(r.v) + '</span>' +
+        '</div>' +
+        '<div class="bar"><i style="width:' + Math.min(pct, 100) + '%;background:' + COLORS[r.key] + '"></i></div>' +
+      '</li>';
+    }).join("");
+    $(id).innerHTML = html;
+  }
+  function renderStack(barId, legendId, rows, total) {
+    var barHtml = rows.map(function (r) {
+      var pct = total > 0 ? r.v / total * 100 : 0;
+      return '<i style="width:' + Math.min(pct, 100) + '%;background:' + COLORS[r.key] + '"></i>';
+    }).join("");
+    var legendHtml = rows.map(function (r) {
+      var pct = total > 0 ? r.v / total * 100 : 0;
+      return '<span><span class="dot" style="background:' + COLORS[r.key] + '"></span>' + r.name + ' ' + fmt(pct, 1) + '%</span>';
+    }).join("");
+    $(barId).innerHTML = barHtml || '<i style="width:100%;background:#cbd5e1"></i>';
+    $(legendId).innerHTML = legendHtml;
+  }
+
+  /* ---------- 预设 ---------- */
+  var FIELDS = ["h", "v", "ql", "kl", "nmla", "qkd", "og", "ol", "mix", "hcm",
+                "Ld", "Lm", "Lmtp", "Li", "nih", "nid", "Lc4", "Lc128",
+                "fe", "nr", "ns", "k", "re", "s", "b", "tp"];
+  function applyValues(vv) {
+    FIELDS.forEach(function (f) { $(f).value = vv[f]; });
+    compute();
+  }
+  function applyPreset(id) {
+    var p = null, i;
+    for (i = 0; i < PRESETS.length; i++) if (PRESETS[i].id === id) p = PRESETS[i];
+    if (!p) return false;
+    applyValues(p.values || p.v);   /* 兼容外部 json({values}) 与内置 fallback({v}) */
+    return true;
+  }
+  function setDefaults() {
+    FIELDS.forEach(function (f) { $(f).value = DEFAULT[f]; });
+    $("preset").value = "v4pro";
+    compute();
+  }
+  function presetToCustom() {
+    if ($("preset").value !== "custom") $("preset").value = "custom";
+  }
+
+  FIELDS.forEach(function (id) {
+    var el = $(id);
+    el.addEventListener("input", function () { presetToCustom(); compute(); });
+    el.addEventListener("change", function () { presetToCustom(); compute(); });
+  });
+  $("btn-sync").addEventListener("click", function () {
+    if (!LAST) compute();
+    try {
+      localStorage.setItem("dsv4_sync", JSON.stringify(LAST));
+      window.location.href = "./index.html";   /* 自动跳转至仿真器主界面，由其一次性应用并提示 */
+    } catch (e) {
+      try {
+        var pe = $("sync-msg");
+        pe.className = "sync-msg err";
+        pe.textContent = "同步失败：localStorage 不可用（file:// 下请改用本地 http 服务访问后重试）";
+      } catch (e2) { /* 忽略 */ }
+    }
+  });
+  $("preset").addEventListener("change", function () { applyPreset(this.value); });
+  $("reset").addEventListener("click", setDefaults);
+
+  setDefaults();
+
+  /* ---------- 外部结构预设加载（dsv4_presets.json；失败时保留内置 fallback） ---------- */
+  if (typeof fetch === "function") {
+    fetch("dsv4_presets.json", { cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (cfg) {
+      if (!cfg || typeof cfg !== "object" || !cfg.default || typeof cfg.default !== "object") throw new Error("配置结构无效");
+      DEFAULT = cfg.default;
+      if (Array.isArray(cfg.presets) && cfg.presets.length) PRESETS = cfg.presets;
+      try {
+        var sel = $("preset");
+        var cur = sel.value;
+        sel.innerHTML = "";
+        var ids = ["custom"];
+        PRESETS.forEach(function (p) { ids.push(p.id); });
+        var oC = document.createElement("option");
+        oC.value = "custom"; oC.textContent = "✏️ 自定义";
+        sel.appendChild(oC);
+        PRESETS.forEach(function (p) {
+          var o = document.createElement("option");
+          o.value = p.id; o.textContent = "★ " + p.name;
+          sel.appendChild(o);
+        });
+        sel.value = ids.indexOf(cur) >= 0 ? cur : "custom";
+      } catch (e) { /* 兼容性兜底：保留 HTML 静态选项 */ }
+      setDefaults();
+      try {
+        var w = $("sync-msg");
+        w.className = "sync-msg";
+        w.textContent = "✓ 已加载外部结构预设 dsv4_presets.json（" + PRESETS.length + " 个预设）";
+      } catch (e3) { /* 忽略 */ }
+    }).catch(function (e) {
+      try {
+        var w = $("sync-msg");
+        w.className = "sync-msg err";
+        w.textContent = "外部预设 dsv4_presets.json 加载/解析失败（" + (e && e.message ? e.message : "未知错误") + "），已用内置预设。若以 file:// 打开请改用本地 http 服务。";
+      } catch (e2) { /* 忽略 */ }
+    });
+  }
+})();
+</script>
+</body>
+</html>

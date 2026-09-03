@@ -45,6 +45,17 @@ global.Blob = class { constructor(parts){ this.parts = parts; } };
 global.URL = { createObjectURL(){ return 'blob:x'; }, revokeObjectURL(){} };
 
 /* 4. 执行页面脚本并暴露内部函数 */
+/* localStorage 桥接 mock：预置一次"DeepSeekV4 页同步"（layers=96 ≠ default 61，验证 fetch 完成后不被覆盖） */
+global.localStorage = {
+  _m: { "dsv4_sync": JSON.stringify({ attn: 0.301, exp: 0.066, act: 5.21, layers: 61, nExp: 2048, topk: 30, moeHidden: 3072, hidden: 7168, seqLen: 2048 }) },
+  getItem(k) { return k in this._m ? this._m[k] : null; },
+  setItem(k, v) { this._m[k] = String(v); },
+  removeItem(k) { delete this._m[k]; }
+};
+/* fetch mock：presets.json（外部预设加载在微任务中完成） */
+const __pcfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'presets.json'), 'utf8'));
+global.fetch = async () => ({ ok: true, json: async () => __pcfg });
+
 script = script.replace(/\}\)\(\);\s*$/, 'globalThis.__t = { compute, fmt, fmtGB, applyPreset, presetToCustom, normalizeCfg, importFromText, buildExportConfig, exportConfig, applyValues, computeComm, fmtMB };\n})();');
 eval(script);
 
@@ -67,37 +78,45 @@ function assertCls(name, el, cls) {
   else console.log('[OK]', name, 'has class', cls);
 }
 
+/* Pass A0: 从 DeepSeekV4 页同步（localStorage 一次性消费，含结构字段） */
+assertContains('同步提示', els['cfg-msg'].textContent, '已从 DeepSeekV4 页同步');
+assertEq('同步 attn 值', els['attn'].value, 0.301);
+assertEq('同步 nExp 值', els['nExp'].value, 2048);
+assertContains('同步提示含层数', els['cfg-msg'].textContent, '61 层');
+assertEq('同步键已清除', global.localStorage.getItem('dsv4_sync'), null);
+console.log('--- Pass A0 OK ---\n');
+
 /* Pass A: 默认 = DeepSeekV4 10T 预设（含 FP32 换算、×层数、Layer Input） */
 __t.compute();
 assertEq('kpi-cards',  readNum('kpi-cards'),  '2,048 卡');
 assertContains('kpi-cards-sub 公式', readNum('kpi-cards-sub'), 'FSDP×CP = 2,048');
 assertContains('kpi-cards-sub 说明', readNum('kpi-cards-sub'), '取最大');
-assertEq('kpi-totalw', readNum('kpi-totalw'), '30,784.34 GB（30.06 TB）');
-assertEq('kpi-cardw',  readNum('kpi-cardw'),  '15 GB');
-assertEq('kpi-total',   readNum('kpi-total'),  '76.98 GB');
-assertEq('cluster-static', readNum('cluster-static'), '123,137.37 GB（120.25 TB）');
-assertEq('cluster-total',  readNum('cluster-total'),  '123,455.18 GB（120.56 TB）');
-assertEq('card-total',     readNum('card-total'),     '76.98 GB');
+assertEq('kpi-totalw', readNum('kpi-totalw'), '30,784.34 GiB（30.06 TB）');
+assertEq('kpi-cardw',  readNum('kpi-cardw'),  '15 GiB');
+assertEq('kpi-total',   readNum('kpi-total'),  '76.98 GiB');
+assertEq('cluster-static', readNum('cluster-static'), '123,137.37 GiB（120.25 TB）');
+assertEq('cluster-total',  readNum('cluster-total'),  '123,455.18 GiB（120.56 TB）');
+assertEq('card-total',     readNum('card-total'),     '76.98 GiB');
 assertEq('cluster-list rows', (els['cluster-list'].innerHTML.match(/<li>/g)||[]).length + '', '4');
 assertEq('card-list rows',    (els['card-list'].innerHTML.match(/<li>/g)||[]).length + '', '7');
-assertEq('kpi-hbm', readNum('kpi-hbm'), '占 96 GB HBM：80.2%');
+assertEq('kpi-hbm', readNum('kpi-hbm'), '占 96 GiB HBM：80.2%');
 assertContains('kpi-totalw-sub', readNum('kpi-totalw-sub'), '8,263.6 B');
 assertContains('card-list Layer Input', els['card-list'].innerHTML, 'Layer Input');
-assertContains('card-list Layer Input 值', els['card-list'].innerHTML, '1.67 GB');
+assertContains('card-list Layer Input 值', els['card-list'].innerHTML, '1.67 GiB');
 console.log('--- Pass A OK ---\n');
 
 /* Pass B: recompute=false */
 els['recompute'].checked = false;
 __t.compute();
-assertEq('kpi-total (no recompute)', readNum('kpi-total'), '389.58 GB');
-assertEq('card-total (no recompute)', readNum('card-total'), '389.58 GB');
-assertEq('kpi-hbm (no recompute)', readNum('kpi-hbm'), '占 96 GB HBM：405.8%');
+assertEq('kpi-total (no recompute)', readNum('kpi-total'), '389.58 GiB');
+assertEq('card-total (no recompute)', readNum('card-total'), '389.58 GiB');
+assertEq('kpi-hbm (no recompute)', readNum('kpi-hbm'), '占 96 GiB HBM：405.8%');
 console.log('--- Pass B OK ---\n');
 
 /* Pass C: HBM 超限 */
 els['hbm'].value = '20';
 __t.compute();
-assertEq('kpi-hbm (hbm=20)', readNum('kpi-hbm'), '占 20 GB HBM：1,947.9%');
+assertEq('kpi-hbm (hbm=20)', readNum('kpi-hbm'), '占 20 GiB HBM：1,947.9%');
 console.log('--- Pass C OK ---\n');
 
 /* Pass D: 非法并行度 */
@@ -114,7 +133,7 @@ for (const kv of [['attn','2'],['exp','0'],['nExp','1'],['layers','4'],['topk','
 els['recompute'].checked = true; els['swap'].checked = false;
 __t.compute();
 assertEq('minimal cards', readNum('kpi-cards'), '1 卡');
-assertEq('minimal card-total', readNum('card-total'), '135.22 GB');
+assertEq('minimal card-total', readNum('card-total'), '135.22 GiB');
 console.log('--- Pass E OK ---\n');
 
 /* Pass F: 配置管理 */
@@ -162,16 +181,16 @@ assertContains('import msg err', els['cfg-msg'].className, 'err');
 
 els['preset'].value = 'deepseek-v4-10t';
 els['preset'].selectedIndex = 1;
-__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false });
+__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:8, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false });
 const cfgObj = __t.buildExportConfig();
 const expected = { name:'DeepSeekV4 10T(预估)', version:1,
   model:{attnB:0.301,expertB:0.066,numExperts:2048,layers:61,seqLen:2048,hiddenSize:7168,moeHidden:3072,topk:30,activationGB:5.21},
   parallel:{fsdp:2048,ep:128,efsdp:16,cp:1,hbmGB:96},
-  network:{intraBW:100,intraSize:16,superBW:200,superSize:1024,interBW:50,fsdpDtype:2,util:0.8},
+  network:{intraBW:100,intraSize:8,superBW:200,superSize:1024,interBW:50,fsdpDtype:2,util:0.8},
   options:{recompute:true,swapOptimizer:false,swapActivation:false} };
 assertEq('export cfg JSON', JSON.stringify(cfgObj), JSON.stringify(expected));
 els['preset'].value = 'custom';
-__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false });
+__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:8, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false });
 assertEq('export 自定义 name', __t.buildExportConfig().name, '自定义配置');
 __t.exportConfig();
 assertContains('export msg', els['cfg-msg'].textContent, '已导出配置');
@@ -180,33 +199,33 @@ console.log('--- Pass F OK ---\n');
 /* Pass G: SwapOptimizer=True → 仅单卡优化器=0，集群口径不变 */
 els['swap'].checked = true;
 __t.compute();
-assertEq('swap 单卡总显存', readNum('kpi-total'), '46.98 GB');
-assertEq('swap card-total', readNum('card-total'), '46.98 GB');
-assertEq('swap kpi-hbm', readNum('kpi-hbm'), '占 96 GB HBM：48.9%');
-assertEq('swap cluster-static 不变', readNum('cluster-static'), '123,137.37 GB（120.25 TB）');
-assertEq('swap cluster-total 不变',  readNum('cluster-total'),  '123,455.18 GB（120.56 TB）');
-assertContains('swap 单卡优化器=0', els['card-list'].innerHTML, 'class="val">0 GB');
+assertEq('swap 单卡总显存', readNum('kpi-total'), '46.98 GiB');
+assertEq('swap card-total', readNum('card-total'), '46.98 GiB');
+assertEq('swap kpi-hbm', readNum('kpi-hbm'), '占 96 GiB HBM：48.9%');
+assertEq('swap cluster-static 不变', readNum('cluster-static'), '123,137.37 GiB（120.25 TB）');
+assertEq('swap cluster-total 不变',  readNum('cluster-total'),  '123,455.18 GiB（120.56 TB）');
+assertContains('swap 单卡优化器=0', els['card-list'].innerHTML, 'class="val">0 GiB');
 assertContains('swap 单卡标注', els['card-list'].innerHTML, 'SwapOptimizer：交换出卡');
-assertContains('swap 集群优化器保留', els['cluster-list'].innerHTML, '61,568.68 GB');
+assertContains('swap 集群优化器保留', els['cluster-list'].innerHTML, '61,568.68 GiB');
 if (els['cluster-list'].innerHTML.includes('SwapOptimizer')) { console.error('[FAIL] 集群不应出现 Swap 标注'); fail = 1; }
 else console.log('[OK] 集群无 Swap 标注');
 els['swap'].checked = false;
 __t.compute();
-assertEq('swap 关闭后恢复', readNum('card-total'), '76.98 GB');
+assertEq('swap 关闭后恢复', readNum('card-total'), '76.98 GiB');
 console.log('--- Pass G OK ---\n');
 
 /* Pass H: 通信耗时 EP Alltoall 列（DeepSeekV4 预设，机内16/超节点1024/集群10240） */
 __t.compute();
-assertEq('EP 列 总接受数据', readNum('comm-a-total'), '0.3 GB');
-assertEq('EP 列 每份数据', readNum('comm-a-piece'), '3 MB');
-assertEq('EP 列 有效带宽', readNum('comm-a-bw'), '143.1 GB/s');
-assertEq('EP 列 耗时', readNum('comm-a-time'), '2.438 ms');
-assertEq('EP 列 瓶颈层', readNum('comm-a-bottleneck'), '超节点内（112 份 · 200 GB/s）');
+assertEq('EP 列 总接受数据', readNum('comm-a-total'), '0.8 GiB');
+assertEq('EP 列 每份数据', readNum('comm-a-piece'), '7 MB');
+assertEq('EP 列 有效带宽', readNum('comm-a-bw'), '151.64 GiB/s');
+assertEq('EP 列 耗时', readNum('comm-a-time'), '5.367 ms');
+assertEq('EP 列 瓶颈层', readNum('comm-a-bottleneck'), '超节点内（120 份 · 200 GiB/s）');
 assertEq('EP 列 tiers 行数', (els['comm-a-tiers'].innerHTML.match(/<li>/g)||[]).length + '', '3');
-assertContains('EP 列 机内', els['comm-a-tiers'].innerHTML, '15 份');
-assertContains('EP 列 机内占比', els['comm-a-tiers'].innerHTML, '11.8%');
-assertContains('EP 列 超节点内', els['comm-a-tiers'].innerHTML, '112 份');
-assertContains('EP 列 超节点内占比', els['comm-a-tiers'].innerHTML, '88.2%');
+assertContains('EP 列 机内', els['comm-a-tiers'].innerHTML, '7 份');
+assertContains('EP 列 机内占比', els['comm-a-tiers'].innerHTML, '5.5%');
+assertContains('EP 列 超节点内', els['comm-a-tiers'].innerHTML, '120 份');
+assertContains('EP 列 超节点内占比', els['comm-a-tiers'].innerHTML, '94.5%');
 assertContains('EP 列 超节点间', els['comm-a-tiers'].innerHTML, '0 份');
 if (els['comm-a-warn'].classList.contains('show')) { console.error('[FAIL] comm-a-warn 不应出现'); fail = 1; }
 else console.log('[OK] EP 列 comm-warn 缺省隐藏');
@@ -215,61 +234,61 @@ console.log('--- Pass H OK ---\n');
 /* Pass I: EP=2048 跨超节点分解 */
 els['ep'].value = '2048';
 __t.compute();
-assertContains('ep2048 机内', els['comm-a-tiers'].innerHTML, '15 份');
-assertContains('ep2048 超节点内', els['comm-a-tiers'].innerHTML, '1,008 份');
+assertContains('ep2048 机内', els['comm-a-tiers'].innerHTML, '7 份');
+assertContains('ep2048 超节点内', els['comm-a-tiers'].innerHTML, '1,016 份');
 assertContains('ep2048 超节点间', els['comm-a-tiers'].innerHTML, '1,024 份');
-assertEq('ep2048 瓶颈层', readNum('comm-a-bottleneck'), '超节点间（1,024 份 · 50 GB/s）');
+assertEq('ep2048 瓶颈层', readNum('comm-a-bottleneck'), '超节点间（1,024 份 · 50 GiB/s）');
 els['ep'].value = '128';
 __t.compute();
 console.log('--- Pass I OK ---\n');
 
 /* Pass J: 通信对比卡片两列并排（EP Alltoall 与 FSDP Allgather/RS），EFSDP 列预留 */
 els['fsdp'].value = '2048'; els['fsdpDtype'].value = '2';  /* 默认 BF16 */
-els['intraSize'].value = '16'; els['superSize'].value = '1024';
+els['intraSize'].value = '8'; els['superSize'].value = '1024';
 els['recompute'].checked = true; els['swap'].checked = false;
 __t.compute();
 /* 左列 EP Alltoall */
-assertEq('EP 列 总接受数据', readNum('comm-a-total'), '0.3 GB');
-assertEq('EP 列 每份数据', readNum('comm-a-piece'), '3 MB');
-assertEq('EP 列 算法带宽', readNum('comm-a-bw'), '143.1 GB/s');
-assertEq('EP 列 耗时', readNum('comm-a-time'), '2.438 ms');
-assertEq('EP 列 瓶颈层', readNum('comm-a-bottleneck'), '超节点内（112 份 · 200 GB/s）');
+assertEq('EP 列 总接受数据', readNum('comm-a-total'), '0.8 GiB');
+assertEq('EP 列 每份数据', readNum('comm-a-piece'), '7 MB');
+assertEq('EP 列 算法带宽', readNum('comm-a-bw'), '151.64 GiB/s');
+assertEq('EP 列 耗时', readNum('comm-a-time'), '5.367 ms');
+assertEq('EP 列 瓶颈层', readNum('comm-a-bottleneck'), '超节点内（120 份 · 200 GiB/s）');
 /* 右列 FSDP Allgather/RS（默认 dtype=2 即 BF16：0.301B × 10⁹ × 2 / 1024² / 2048 × 2047 ≈ 573.8 MB） */
 assertEq('FSDP 通信域', __t.computeComm('fsdp').domain + '', '2048');
-assertEq('FSDP 列 总接收(BF16)', readNum('comm-f-total'), '0.6 GB');
+assertEq('FSDP 列 总接收(BF16)', readNum('comm-f-total'), '0.6 GiB');
 assertEq('FSDP 列 每份(BF16)', readNum('comm-f-piece'), '287 KB');
-assertEq('FSDP 列 算法带宽', readNum('comm-f-bw'), '82.58 GB/s');
-assertEq('FSDP 列 耗时(BF16)', readNum('comm-f-time'), '6.786 ms');
-assertEq('FSDP 列 瓶颈层', readNum('comm-f-bottleneck'), '机内（1,920 份 · 100 GB/s）');
-assertContains('FSDP 列 机内', els['comm-f-tiers'].innerHTML, '1,920 份');
-assertContains('FSDP 列 机内占比', els['comm-f-tiers'].innerHTML, '93.8%');
-assertContains('FSDP 列 超节点内', els['comm-f-tiers'].innerHTML, '126 份');
+assertEq('FSDP 列 算法带宽', readNum('comm-f-bw'), '85.34 GiB/s');
+assertEq('FSDP 列 耗时(BF16)', readNum('comm-f-time'), '6.567 ms');
+assertEq('FSDP 列 瓶颈层', readNum('comm-f-bottleneck'), '机内（1,792 份 · 100 GiB/s）');
+assertContains('FSDP 列 机内', els['comm-f-tiers'].innerHTML, '1,792 份');
+assertContains('FSDP 列 机内占比', els['comm-f-tiers'].innerHTML, '87.5%');
+assertContains('FSDP 列 超节点内', els['comm-f-tiers'].innerHTML, '254 份');
 assertContains('FSDP 列 超节点间', els['comm-f-tiers'].innerHTML, '1 份');
-assertContains('EP 列 机内', els['comm-a-tiers'].innerHTML, '15 份');
-assertContains('EP 列 超节点内', els['comm-a-tiers'].innerHTML, '112 份');
+assertContains('EP 列 机内', els['comm-a-tiers'].innerHTML, '7 份');
+assertContains('EP 列 超节点内', els['comm-a-tiers'].innerHTML, '120 份');
 if (els['comm-a-warn'].classList.contains('show')) { console.error('[FAIL] EP 列 warn 不应出现'); fail = 1; }
 else console.log('[OK] EP 列 comm-warn 缺省隐藏');
 if (els['comm-f-warn'].classList.contains('show')) { console.error('[FAIL] FSDP 列 warn 不应出现'); fail = 1; }
 else console.log('[OK] FSDP 列 comm-warn 缺省隐藏');
 /* EFSDP 第三列（通信域=EFSDP=16；有效层级 = 物理大小/EP → 超节点 1024/128=8、机内 16/128→1；
-   载荷 = 0.066×2048/128 × 10⁹×2 / 1024² × 15/16 ≈ 1,888.3 MB = 1.8 GB，默认 BF16） */
+   载荷 = 0.066×2048/128 × 10⁹×2 / 1024² × 15/16 ≈ 1,888.3 MB = 1.8 GiB，默认 BF16） */
 assertEq('EFSDP 通信域', __t.computeComm('efsdp').domain + '', '16');
-assertEq('EFSDP 列 总接受数据', readNum('comm-e-total'), '1.8 GB');
+assertEq('EFSDP 列 总接受数据', readNum('comm-e-total'), '1.8 GiB');
 assertEq('EFSDP 列 每份数据', readNum('comm-e-piece'), '126 MB');
-assertEq('EFSDP 列 算法带宽', readNum('comm-e-bw'), '171.43 GB/s');
+assertEq('EFSDP 列 算法带宽', readNum('comm-e-bw'), '171.43 GiB/s');
 assertEq('EFSDP 列 耗时', readNum('comm-e-time'), '10.757 ms');
-assertEq('EFSDP 列 瓶颈层', readNum('comm-e-bottleneck'), '超节点内（14 份 · 200 GB/s）');
+assertEq('EFSDP 列 瓶颈层', readNum('comm-e-bottleneck'), '超节点内（14 份 · 200 GiB/s）');
 assertContains('EFSDP 列 机内', els['comm-e-tiers'].innerHTML, '0 份');
 assertContains('EFSDP 列 超节点内', els['comm-e-tiers'].innerHTML, '14 份');
 assertContains('EFSDP 列 超节点间', els['comm-e-tiers'].innerHTML, '1 份');
 assertContains('EFSDP 列 公式文案', els['comm-e-total-sub'].textContent, '/EP');
 if (els['comm-e-warn'].classList.contains('show')) { console.error('[FAIL] EFSDP 列 warn 不应出现'); fail = 1; }
 else console.log('[OK] EFSDP 列 comm-warn 缺省隐藏');
-/* 小通信域 FSDP=256：机内 = 255−15−0 = 240 份 */
+/* 小通信域 FSDP=256（intraSize=8）：机内 = 255−31−0 = 224 份 */
 els['fsdp'].value = '256';
 __t.compute();
-assertContains('fsdp256 机内', els['comm-f-tiers'].innerHTML, '240 份');
-assertContains('fsdp256 超节点内', els['comm-f-tiers'].innerHTML, '15 份');
+assertContains('fsdp256 机内', els['comm-f-tiers'].innerHTML, '224 份');
+assertContains('fsdp256 超节点内', els['comm-f-tiers'].innerHTML, '31 份');
 assertContains('fsdp256 超节点间', els['comm-f-tiers'].innerHTML, '0 份');
 els['fsdp'].value = '2048';
 __t.compute();
@@ -277,18 +296,18 @@ __t.compute();
 /* dtype 选项切换：FP32=4 → 载荷翻倍；FP8=1 → 载荷减半；EP 列不受影响 */
 els['fsdpDtype'].value = '4';
 __t.compute();
-assertEq('FSDP FP32 总接收', readNum('comm-f-total'), '1.1 GB');
+assertEq('FSDP FP32 总接收', readNum('comm-f-total'), '1.1 GiB');
 assertEq('FSDP FP32 每份', readNum('comm-f-piece'), '574 KB');
-assertEq('FSDP FP32 耗时', readNum('comm-f-time'), '13.572 ms');
-assertEq('EP 列不受 dtype 影响', readNum('comm-a-total'), '0.3 GB');
+assertEq('FSDP FP32 耗时', readNum('comm-f-time'), '13.134 ms');
+assertEq('EP 列不受 dtype 影响', readNum('comm-a-total'), '0.8 GiB');
 els['fsdpDtype'].value = '1';
 __t.compute();
-assertEq('FSDP FP8 总接收', readNum('comm-f-total'), '0.3 GB');
+assertEq('FSDP FP8 总接收', readNum('comm-f-total'), '0.3 GiB');
 assertEq('FSDP FP8 每份', readNum('comm-f-piece'), '144 KB');
-assertEq('FSDP FP8 耗时', readNum('comm-f-time'), '3.393 ms');
+assertEq('FSDP FP8 耗时', readNum('comm-f-time'), '3.283 ms');
 els['fsdpDtype'].value = '2';
 __t.compute();
-assertEq('FSDP 恢复 BF16 默认', readNum('comm-f-total'), '0.6 GB');
+assertEq('FSDP 恢复 BF16 默认', readNum('comm-f-total'), '0.6 GiB');
 console.log('--- Pass J OK ---\n');
 
 /* Pass K: 外部预设文件 presets.json 与页面内置 fallback 一致性 */
@@ -311,17 +330,17 @@ assertEq('外部预设 util 生效', els['util'].value, 0.8);
 console.log('--- Pass K OK ---\n');
 
 /* Pass L: SwapActivation=True → Layer Input = 0（仅单卡口径，集群不变） */
-__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:16, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false, swapact:true });
+__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:8, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false, swapact:true });
 __t.compute();
-assertEq('swapact 单卡总显存', readNum('kpi-total'), '75.31 GB');
-assertEq('swapact card-total', readNum('card-total'), '75.31 GB');
-assertEq('swapact kpi-hbm', readNum('kpi-hbm'), '占 96 GB HBM：78.5%');
-assertContains('swapact Layer Input=0', els['card-list'].innerHTML, 'class="val">0 GB');
+assertEq('swapact 单卡总显存', readNum('kpi-total'), '75.31 GiB');
+assertEq('swapact card-total', readNum('card-total'), '75.31 GiB');
+assertEq('swapact kpi-hbm', readNum('kpi-hbm'), '占 96 GiB HBM：78.5%');
+assertContains('swapact Layer Input=0', els['card-list'].innerHTML, 'class="val">0 GiB');
 assertContains('swapact 标注', els['card-list'].innerHTML, 'SwapActivation：交换出卡');
-assertEq('swapact 集群总显存不变', readNum('cluster-total'), '123,455.18 GB（120.56 TB）');
+assertEq('swapact 集群总显存不变', readNum('cluster-total'), '123,455.18 GiB（120.56 TB）');
 els['swapact'].checked = false;
 __t.compute();
-assertEq('swapact 关闭恢复', readNum('card-total'), '76.98 GB');
+assertEq('swapact 关闭恢复', readNum('card-total'), '76.98 GiB');
 console.log('--- Pass L OK ---\n');
 
 if (fail) { console.error('TESTS FAILED'); process.exit(1); }

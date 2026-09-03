@@ -250,6 +250,9 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   header .sub { color: var(--ink-2); font-size: 13.5px; margin-top: 6px; }
+  .navlink { font-size: 12.5px; font-weight: 700; color: #0369a1; text-decoration: none;
+    background: var(--glass-strong); border: 1.5px solid rgba(14,165,233,.35);
+    padding: 5px 14px; border-radius: 999px; white-space: nowrap; box-shadow: var(--shadow); }
 
   /* KPI */
   .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
@@ -414,7 +417,7 @@
   </section>
 
   <section class="panel-section">
-    <h3>🧠 模型参数 <span class="tl-note">FP32：1 B ≈ 3.725 GB</span></h3>
+    <h3>🧠 模型参数 <span class="tl-note">FP32：1 B ≈ 3.725 GiB</span></h3>
     <div class="field-grid">
       <div class="field">
         <label for="attn">单层 Attention 参数量</label>
@@ -450,7 +453,7 @@
       </div>
       <div class="field">
         <label for="act">单层动态激活</label>
-        <div class="unitbox"><input id="act" type="number" step="any" min="0" value="5.21"><span class="unit">GB</span></div>
+        <div class="unitbox"><input id="act" type="number" step="any" min="0" value="5.21"><span class="unit">GiB</span></div>
       </div>
     </div>
   </section>
@@ -476,7 +479,7 @@
       </div>
       <div class="field">
         <label for="hbm">单卡 HBM 容量 <span class="note">（仅用于占用率展示）</span></label>
-        <div class="unitbox"><input id="hbm" type="number" step="any" min="0" value="80"><span class="unit">GB</span></div>
+        <div class="unitbox"><input id="hbm" type="number" step="any" min="0" value="80"><span class="unit">GiB</span></div>
       </div>
     </div>
 
@@ -506,7 +509,7 @@
     <div class="field-grid">
       <div class="field">
         <label for="intraBW">机内带宽</label>
-        <div class="unitbox"><input id="intraBW" type="number" step="any" min="0" value="750"><span class="unit">GB/s</span></div>
+        <div class="unitbox"><input id="intraBW" type="number" step="any" min="0" value="750"><span class="unit">GiB/s</span></div>
       </div>
       <div class="field">
         <label for="intraSize">机内大小</label>
@@ -514,7 +517,7 @@
       </div>
       <div class="field">
         <label for="superBW">超节点带宽</label>
-        <div class="unitbox"><input id="superBW" type="number" step="any" min="0" value="200"><span class="unit">GB/s</span></div>
+        <div class="unitbox"><input id="superBW" type="number" step="any" min="0" value="200"><span class="unit">GiB/s</span></div>
       </div>
       <div class="field">
         <label for="superSize">超节点大小</label>
@@ -522,7 +525,7 @@
       </div>
       <div class="field">
         <label for="interBW">超节点间带宽</label>
-        <div class="unitbox"><input id="interBW" type="number" step="any" min="0" value="50"><span class="unit">GB/s</span></div>
+        <div class="unitbox"><input id="interBW" type="number" step="any" min="0" value="50"><span class="unit">GiB/s</span></div>
       </div>
       <div class="field">
         <label for="fsdpDtype">FSDP 通信 dtype</label>
@@ -555,6 +558,7 @@
       <h1>LLM 预训练集群仿真器</h1>
       <div class="sub">大模型预训练集群仿真建模 · 当前模块：显存建模（Memory Modeling）— 输入实时计算，无需刷新</div>
     </div>
+    <a class="navlink" href="./deepseek4.html">DeepSeekV4 参数量 / 激活显存 ›</a>
   </header>
 
   <div class="kpis">
@@ -612,7 +616,7 @@
         <div class="kpis">
           <div class="kpi"><div class="k-label">总接受数据</div>
             <div class="k-value" id="comm-a-total">—</div>
-            <div class="k-sub" id="comm-a-total-sub">seq × MoE hidden × 2B × topk / 1024² / 通信域 × (通信域−1)</div></div>
+            <div class="k-sub" id="comm-a-total-sub">seq × Hidden × 2B × topk / 1024² / 通信域 × (通信域−1)</div></div>
           <div class="kpi"><div class="k-label">每份数据</div>
             <div class="k-value" id="comm-a-piece">—</div>
             <div class="k-sub" id="comm-a-piece-sub">总接受数据 / (通信域 − 1)</div></div>
@@ -621,7 +625,7 @@
             <div class="k-sub" id="comm-a-bw-sub">总流量/瓶颈耗时 × 带宽利用率</div></div>
           <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
             <div class="k-value" id="comm-a-time">—</div>
-            <div class="k-sub" id="comm-a-time-sub">总接受数据(GB) / 算法带宽</div></div>
+            <div class="k-sub" id="comm-a-time-sub">总接受数据(GiB) / 算法带宽</div></div>
         </div>
         <ul class="breakdown" id="comm-a-tiers"></ul>
         <div class="stack" id="comm-a-stack"></div>
@@ -648,7 +652,7 @@
             <div class="k-sub" id="comm-f-bw-sub">总流量/瓶颈耗时 × 带宽利用率</div></div>
           <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
             <div class="k-value" id="comm-f-time">—</div>
-            <div class="k-sub" id="comm-f-time-sub">总接受数据(GB) / 算法带宽</div></div>
+            <div class="k-sub" id="comm-f-time-sub">总接受数据(GiB) / 算法带宽</div></div>
         </div>
         <ul class="breakdown" id="comm-f-tiers"></ul>
         <div class="stack" id="comm-f-stack"></div>
@@ -675,7 +679,7 @@
             <div class="k-sub" id="comm-e-bw-sub">总流量/瓶颈耗时 × 带宽利用率</div></div>
           <div class="kpi kpi-lg"><div class="k-label">通信耗时</div>
             <div class="k-value" id="comm-e-time">—</div>
-            <div class="k-sub" id="comm-e-time-sub">总接受数据(GB) / 算法带宽</div></div>
+            <div class="k-sub" id="comm-e-time-sub">总接受数据(GiB) / 算法带宽</div></div>
         </div>
         <ul class="breakdown" id="comm-e-tiers"></ul>
         <div class="stack" id="comm-e-stack"></div>
@@ -692,33 +696,33 @@
   <details class="formulas">
     <summary>📐 查看全部计算公式（当前版本）</summary>
     <div class="f-body">
-      约定：参数量单位 B（十亿参数），FP32 换算系数 GB/B = 4 × 10⁹ / 1024³ ≈ 3.7253
-      （即 B × 10⁹ × 4 / 1024³ = GB）；动态激活输入单位即 GB，无需换算。公式逐条对应需求文档 v0.1。
+      约定：参数量单位 B（十亿参数），FP32 换算系数 GiB/B = 4 × 10⁹ / 1024³ ≈ 3.7253
+      （即 B × 10⁹ × 4 / 1024³ = GiB）；动态激活输入单位即 GiB，无需换算。公式逐条对应需求文档 v0.1。
       <code>单个完整 DP 域卡数 = MAX(FSDP × CP, EP × EFSDP × CP)</code>
-      <code>总模型权重 FP32 (GB) = (单层 Attention 参数量 + 单个专家参数量 × 专家数量) × 层数 × (4×10⁹/1024³)</code>
-      <code>总模型梯度 FP32 (GB) = 总模型权重 FP32 (GB)
-总优化器 2×FP32 (GB) = 总模型权重 FP32 (GB) × 2（集群口径不随 SwapOptimizer 变化）
-总静态显存 (GB) = 权重 + 梯度 + 优化器</code>
-      <code>总动态激活 (GB) = 单层动态激活 / CP × 层数</code>
-      <code>单卡模型权重 FP32 (GB) = (单层 Attention 参数量 / FSDP + 单个专家参数量 × 专家数量) × 层数 / (EP × EFSDP) × (4×10⁹/1024³)</code>
-      <code>单卡模型梯度 FP32 (GB) = 单卡模型权重 FP32 (GB)
-单卡优化器 2×FP32 (GB) = 单卡模型权重 FP32 (GB) × 2；SwapOptimizer=True 时 = 0（优化器交换至 Host，不占显存）</code>
-      <code>单卡动态激活 (GB) = Recompute ? 总动态激活 / 层数 : 总动态激活</code>
-      <code>单层预取权重 FP32 (GB) = (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × (4×10⁹/1024³)
-单层临时梯度 FP32 (GB) = 单层预取权重 FP32 (GB)
-Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 1024³</code>
-      <code>单卡总显存 (GB) = 权重 + 梯度 + 优化器 + 动态激活 + Layer Input + 预取权重 + 临时梯度</code>
+      <code>总模型权重 FP32 (GiB) = (单层 Attention 参数量 + 单个专家参数量 × 专家数量) × 层数 × (4×10⁹/1024³)</code>
+      <code>总模型梯度 FP32 (GiB) = 总模型权重 FP32 (GiB)
+总优化器 2×FP32 (GiB) = 总模型权重 FP32 (GiB) × 2（集群口径不随 SwapOptimizer 变化）
+总静态显存 (GiB) = 权重 + 梯度 + 优化器</code>
+      <code>总动态激活 (GiB) = 单层动态激活 / CP × 层数</code>
+      <code>单卡模型权重 FP32 (GiB) = (单层 Attention 参数量 / FSDP + 单个专家参数量 × 专家数量) × 层数 / (EP × EFSDP) × (4×10⁹/1024³)</code>
+      <code>单卡模型梯度 FP32 (GiB) = 单卡模型权重 FP32 (GiB)
+单卡优化器 2×FP32 (GiB) = 单卡模型权重 FP32 (GiB) × 2；SwapOptimizer=True 时 = 0（优化器交换至 Host，不占显存）</code>
+      <code>单卡动态激活 (GiB) = Recompute ? 总动态激活 / 层数 : 总动态激活</code>
+      <code>单层预取权重 FP32 (GiB) = (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × (4×10⁹/1024³)
+单层临时梯度 FP32 (GiB) = 单层预取权重 FP32 (GiB)
+Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 1024³</code>
+      <code>单卡总显存 (GiB) = 权重 + 梯度 + 优化器 + 动态激活 + Layer Input + 预取权重 + 临时梯度</code>
       <code>EP Alltoall（均衡）：
 通信域 = EP
-总接受数据 (MB) = 序列长度 × MoE Hidden Size × 2(BF16) × TopK / 1024² / 通信域 × (通信域 − 1)
+总接受数据 (MB) = 序列长度 × Hidden Size × 2(BF16) × TopK / 1024² / 通信域 × (通信域 − 1)
 每份数据 (MB) = 总接受数据 / (通信域 − 1)
 总流量 = 通信域 − 1
 机内流量 = MIN(总流量, 机内大小 − 1)
 超节点内流量 = MAX(MIN(通信域, 超节点大小) − 机内大小, 0)
 超节点间流量 = MAX(通信域 − 超节点大小, 0)
 各层占比 = 各层流量 / 总流量
-算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
-通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
+算法带宽 (GiB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
+通信耗时 = 总接受数据(GiB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
       <code>FSDP Allgather / ReduceScatter（分层）：
 通信域 = FSDP
 总接受数据 (MB) = 单层 Attention 参数量 × 10⁹ × dtype 字节 / 1024² / 通信域 × (通信域 − 1)
@@ -728,8 +732,8 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
 超节点内流量 = MAX(MIN(通信域, 超节点大小) / 机内大小 − 1, 0) × (超节点间流量 + 1)
 超节点间流量 = MAX(通信域 / 超节点大小 − 1, 0)
 各层占比 = 各层流量 / 总流量
-算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
-通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
+算法带宽 (GiB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
+通信耗时 = 总接受数据(GiB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
       <code>EFSDP Allgather / ReduceScatter（分层）：
 通信域 = EFSDP
 总接受数据 (MB) = 单层 MoE 参数量 / EP × 10⁹ × dtype 字节 / 1024² / 通信域 × (通信域 − 1)
@@ -741,8 +745,8 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
 超节点内流量 = MAX(MIN(通信域, 有效超节点) / 有效机内 − 1, 0) × (超节点间流量 + 1)
 超节点间流量 = MAX(通信域 / 有效超节点 − 1, 0)
 各层占比 = 各层流量 / 总流量
-算法带宽 (GB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
-通信耗时 = 总接受数据(GB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
+算法带宽 (GiB/s) = 总流量 / MAX(机内流量/机内带宽 + 超节点内流量/超节点带宽, 超节点间流量/超节点间带宽) × 带宽利用率(默认 0.8)
+通信耗时 = 总接受数据(GiB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
     </div>
   </details>
 
@@ -772,25 +776,26 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
     attn: 0.301, exp: 0.066, nExp: 2048, layers: 61, topk: 30, act: 5.21,
     seqLen: 2048, hidden: 7168, moeHidden: 3072,
     fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
-    intraBW: 100, intraSize: 16, superBW: 200, superSize: 1024,
+    intraBW: 100, intraSize: 8, superBW: 200, superSize: 1024,
     interBW: 50, fsdpDtype: 2, util: 0.8,
     recompute: true, swap: false, swapact: false
   };
 
   /* 预设配置 */
+  var SYNC_APPLIED = false; /* DeepSeekV4 页同步已应用：fetch 完成时不再重置输入 */
   var PRESETS = [
     { id: "deepseek-v4-10t", name: "DeepSeekV4 10T(预估)",
       values: {
         attn: 0.301, exp: 0.066, nExp: 2048, layers: 61, topk: 30, act: 5.21,
         seqLen: 2048, hidden: 7168, moeHidden: 3072,
         fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
-        intraBW: 100, intraSize: 16, superBW: 200, superSize: 1024,
+        intraBW: 100, intraSize: 8, superBW: 200, superSize: 1024,
         interBW: 50, fsdpDtype: 2, util: 0.8,
         recompute: true, swap: false, swapact: false
       } }
   ];
 
-  /* 参数量(B) → FP32 显存(GB)：B × 10^9 × 字节数(FP32=4) / 1024^3 ≈ B × 3.7253 */
+  /* 参数量(B) → FP32 显存(GiB)：B × 10^9 × 字节数(FP32=4) / 1024^3 ≈ B × 3.7253 */
   var BYTES_PER_PARAM = 4; /* FP32，后续可扩展 BF16(2)/FP8(1) */
   var GB_PER_B = BYTES_PER_PARAM * 1e9 / Math.pow(1024, 3); /* ≈ 3.7252903 */
 
@@ -814,10 +819,10 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
     return n.toLocaleString("en-US",
       { minimumFractionDigits: (m === undefined ? 0 : m), maximumFractionDigits: d });
   }
-  /* 主单位 GB，≥1024 时附带 TB */
+  /* 主单位 GiB，≥1024 时附带 TB */
   function fmtGB(n, d) {
     if (!isFinite(n)) return "—";
-    var s = fmt(n, d) + " GB";
+    var s = fmt(n, d) + " GiB";
     if (Math.abs(n) >= 1024) s += "（" + fmt(n / 1024, 2) + " TB）";
     return s;
   }
@@ -855,11 +860,11 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
     var expertsPB = expB * nExp;                    /* 单层 MoE 全部专家参数量 (B) */
     var layerWB   = attnB + expertsPB;              /* 单层总参数量 (B) */
     var totalParamsB = layerWB * layers;            /* 总参数量 (B) */
-    var totalW    = totalParamsB * GB_PER_B;        /* 总权重 FP32 (GB) */
+    var totalW    = totalParamsB * GB_PER_B;        /* 总权重 FP32 (GiB) */
     var totalG    = totalW;
     var totalO    = totalW * 2;          /* 集群口径不随 SwapOptimizer 变化 */
     var totalStatic = totalW + totalG + totalO;
-    var totalAct  = act / cp * layers;              /* 动态激活输入已是 GB，无需换算 */
+    var totalAct  = act / cp * layers;              /* 动态激活输入已是 GiB，无需换算 */
     var clusterTotal = totalStatic + totalAct;
 
     /* ----- 单卡维度 ----- */
@@ -905,7 +910,7 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
     $("kpi-cards").textContent = fmt(cards, 0) + " 卡";
     $("kpi-cards-sub").textContent = "FSDP×CP = " + fmt(fsdp * cp, 0) + " · EP×EFSDP×CP = " + fmt(ep * efsdp * cp, 0) + "，取最大";
     $("kpi-totalw").textContent = fmtGB(totalW);
-    $("kpi-totalw-sub").textContent = "总参数量 " + fmt(totalParamsB, 1) + " B（" + fmt(layerWB, 2) + " B/层）· FP32 1B≈3.725GB";
+    $("kpi-totalw-sub").textContent = "总参数量 " + fmt(totalParamsB, 1) + " B（" + fmt(layerWB, 2) + " B/层）· FP32 1B≈3.725GiB";
     $("kpi-cardw").textContent = fmtGB(cardW);
     $("kpi-cardw-sub").textContent = "(单层Attn/FSDP + 全量专家) × 层数 / (EP×EFSDP)";
     $("kpi-total").textContent = fmtGB(cardTotal);
@@ -913,7 +918,7 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
     var hbmEl = $("kpi-hbm");
     if (hbm > 0) {
       var util = cardTotal / hbm * 100;
-      hbmEl.textContent = "占 " + fmt(hbm, 0) + " GB HBM：" + fmt(util, 1) + "%";
+      hbmEl.textContent = "占 " + fmt(hbm, 0) + " GiB HBM：" + fmt(util, 1) + "%";
       hbmEl.className = "k-sub " + (util > 100 ? "bad" : (util > 90 ? "warn" : "ok"));
     } else {
       hbmEl.textContent = "未设置 HBM 容量";
@@ -939,7 +944,7 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
       { key: "o", name: "优化器 2×FP32",    note: swap ? "SwapOptimizer：交换出卡，不占显存" : "= 单卡权重 × 2", v: cardO },
       { key: "a", name: "动态激活",          note: recompute ? "Recompute：总激活/层数" : "无 Recompute：总激活", v: cardAct },
       { key: "l", name: "Layer Input(层输入)", note: swapact ? "SwapActivation：交换出卡，不占显存" : "seq×hidden×层数×2B/1024³", v: layerInputGB },
-      { key: "p", name: "单层预取权重 FP32", note: "(Attn+专家×(N/EP))×3.725GB/B", v: prefetchW },
+      { key: "p", name: "单层预取权重 FP32", note: "(Attn+专家×(N/EP))×3.725GiB/B", v: prefetchW },
       { key: "t", name: "单层临时梯度 FP32", note: "= 预取权重",    v: tempG }
     ];
     renderList("card-list", cardRows, cardTotal);
@@ -970,7 +975,7 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
     var recvTotalMB = 0, pieceMB = 0;
     if (domain > 1) {
       if (kind === 0) {
-        recvTotalMB = Math.max(0, int("seqLen")) * Math.max(0, int("moeHidden")) * MOE_DTYPE_BYTES
+        recvTotalMB = Math.max(0, int("seqLen")) * Math.max(0, int("hidden")) * MOE_DTYPE_BYTES
                     * Math.max(0, int("topk")) / 1024 / 1024 / domain * (domain - 1);
       } else if (kind === 1) {
         /* 单层 Attention 参数量(B) × 10⁹ × dtype / 1024² / 域 × (域−1) */
@@ -998,12 +1003,12 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
       intraFlow = Math.max(totalFlow - superFlow - interFlow, 0);
     }
 
-    /* 算法带宽：总流量 / MAX(机内+超节点内耗时, 超节点间耗时)；耗时 = 总接受数据(GB)/带宽 */
+    /* 算法带宽：总流量 / MAX(机内+超节点内耗时, 超节点间耗时)；耗时 = 总接受数据(GiB)/带宽 */
     var tIntra = intraBW > 0 ? intraFlow / intraBW : (intraFlow > 0 ? Infinity : 0);
     var tSuper = superBW > 0 ? superFlow / superBW : (superFlow > 0 ? Infinity : 0);
     var tInter = interBW > 0 ? interFlow / interBW : (interFlow > 0 ? Infinity : 0);
     var worstTime = Math.max(tIntra + tSuper, tInter);
-    var algBW     = (isFinite(worstTime) && worstTime > 0) ? totalFlow / worstTime * util : 0; /* GB/s = 理论带宽 × 带宽利用率 */
+    var algBW     = (isFinite(worstTime) && worstTime > 0) ? totalFlow / worstTime * util : 0; /* GiB/s = 理论带宽 × 带宽利用率 */
     var commTimeS = (algBW > 0) ? (recvTotalMB / 1024) / algBW : 0;
 
     /* 瓶颈层：单个层级 流量/带宽 最大者 */
@@ -1017,7 +1022,7 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
       if (tv > btT) { btT = tv; bt = tt; }
     }
     var bottleneckText = (bt && bt.f > 0)
-      ? bt.n + "（" + fmt(bt.f, dec) + " 份 · " + fmt(bt.b, 0) + " GB/s）" : "—";
+      ? bt.n + "（" + fmt(bt.f, dec) + " 份 · " + fmt(bt.b, 0) + " GiB/s）" : "—";
 
     /* 告警 */
     var warnings = [];
@@ -1043,24 +1048,24 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
 
   /* 通信结果渲染（KPI / 三层列表 / 堆叠条 / 瓶颈 / 告警）；tag 为列前缀 a=EP / f=FSDP / e=EFSDP */
   function renderCommCol(tag, comm) {
-    $("comm-" + tag + "-total").textContent = fmt(comm.recvTotalMB / 1024, 1) + " GB";
+    $("comm-" + tag + "-total").textContent = fmt(comm.recvTotalMB / 1024, 1) + " GiB";
     $("comm-" + tag + "-piece").textContent = fmtMB(comm.pieceMB);
-    $("comm-" + tag + "-bw").textContent = fmt(comm.algBW, 2) + " GB/s";
+    $("comm-" + tag + "-bw").textContent = fmt(comm.algBW, 2) + " GiB/s";
     $("comm-" + tag + "-time").textContent = fmtTime(comm.commTimeS);
     $("comm-" + tag + "-bottleneck").textContent = comm.bottleneckText;
     $("comm-" + tag + "-total-sub").textContent = comm.kind === 0
-      ? "seq × MoE hidden × 2B × topk / 1024² / 通信域 × (通信域−1)"
+      ? "seq × Hidden × 2B × topk / 1024² / 通信域 × (通信域−1)"
       : comm.kind === 1
         ? "单层Attn(B) × 10⁹ × dtype字节 / 1024² / 通信域 × (通信域−1)"
         : "单层MoE(B)/EP × 10⁹ × dtype字节 / 1024² / 通信域 × (通信域−1)";
     $("comm-" + tag + "-piece-sub").textContent = "总接受数据 / (通信域 − 1)";
 
     var tierRows = [
-      { key: "i", name: "机内",     note: "大小 " + fmt(comm.iEff, 0) + " · " + fmt(comm.intraBW, 0) + " GB/s", v: comm.intraFlow,
+      { key: "i", name: "机内",     note: "大小 " + fmt(comm.iEff, 0) + " · " + fmt(comm.intraBW, 0) + " GiB/s", v: comm.intraFlow,
         fmt: function (n) { return fmt(n, comm.dec) + " 份"; } },
-      { key: "s", name: "超节点内", note: "大小 " + fmt(comm.sEff, 0) + " · " + fmt(comm.superBW, 0) + " GB/s", v: comm.superFlow,
+      { key: "s", name: "超节点内", note: "大小 " + fmt(comm.sEff, 0) + " · " + fmt(comm.superBW, 0) + " GiB/s", v: comm.superFlow,
         fmt: function (n) { return fmt(n, comm.dec) + " 份"; } },
-      { key: "e", name: "超节点间", note: "带宽 " + fmt(comm.interBW, 0) + " GB/s", v: comm.interFlow,
+      { key: "e", name: "超节点间", note: "带宽 " + fmt(comm.interBW, 0) + " GiB/s", v: comm.interFlow,
         fmt: function (n) { return fmt(n, comm.dec) + " 份"; } }
     ];
     renderList("comm-" + tag + "-tiers", tierRows, comm.totalFlow);
@@ -1140,7 +1145,7 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
     var p = null, i;
     for (i = 0; i < PRESETS.length; i++) if (PRESETS[i].id === id) p = PRESETS[i];
     if (!p) return false; /* 自定义选项：不做任何修改 */
-    applyValues(p.values);
+    applyValues(p.values || p.v);   /* 兼容外部 json 与内置 fallback 键名 */
     setMsg("已加载预设：「" + p.name + "」", "ok");
     compute();
     return true;
@@ -1353,6 +1358,38 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
 
   setDefaults();
 
+  /* ---------- 从 DeepSeekV4 页同步（一次性消费 localStorage 桥接） ---------- */
+  try {
+    if (typeof localStorage !== "undefined") {
+      var dsync = JSON.parse(localStorage.getItem("dsv4_sync") || "null");
+      if (dsync && typeof dsync.attn === "number") {
+        localStorage.removeItem("dsv4_sync");
+        $("attn").value = isFinite(dsync.attn) ? dsync.attn : $("attn").value;
+        if (typeof dsync.exp === "number") $("exp").value = dsync.exp;
+        if (typeof dsync.act === "number") $("act").value = dsync.act;
+        if (typeof dsync.layers === "number") $("layers").value = dsync.layers;
+        if (typeof dsync.nExp === "number") $("nExp").value = dsync.nExp;
+        if (typeof dsync.topk === "number") $("topk").value = dsync.topk;
+        if (typeof dsync.moeHidden === "number") $("moeHidden").value = dsync.moeHidden;
+        if (typeof dsync.hidden === "number") $("hidden").value = dsync.hidden;
+        if (typeof dsync.seqLen === "number") $("seqLen").value = dsync.seqLen;
+        presetToCustom();
+        compute();
+        SYNC_APPLIED = true;
+        var syncParts = [];
+        syncParts.push("单层 Attn " + fmt(dsync.attn, 4) + " B");
+        if (typeof dsync.exp === "number") syncParts.push("单专家 " + fmt(dsync.exp, 5) + " B");
+        if (typeof dsync.act === "number") syncParts.push("单层激活 " + fmt(dsync.act, 2) + " GiB");
+        if (typeof dsync.layers === "number") syncParts.push(fmt(dsync.layers, 0) + " 层");
+        if (typeof dsync.nExp === "number") syncParts.push(fmt(dsync.nExp, 0) + " 路由专家");
+        if (typeof dsync.topk === "number") syncParts.push("TopK " + fmt(dsync.topk, 0));
+        if (typeof dsync.moeHidden === "number") syncParts.push("f_e " + fmt(dsync.moeHidden, 0));
+        if (typeof dsync.seqLen === "number") syncParts.push("s " + fmt(dsync.seqLen, 0));
+        setMsg("已从 DeepSeekV4 页同步：" + syncParts.join(" · "), "ok");
+      }
+    }
+  } catch (e) { /* localStorage 不可用时静默 */ }
+
   /* ---------- 粘贴导入配置弹窗 ---------- */
   function openPaste() {
     $("paste-input").value = "";
@@ -1379,12 +1416,12 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
 
   /* ---------- 外部预设文件加载（presets.json；失败时保留内置 fallback） ---------- */
   if (typeof fetch === "function") {
-    fetch("presets.json").then(function (r) {
+    fetch("presets.json", { cache: "no-store" }).then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     }).then(function (cfg) {
-      if (!cfg || typeof cfg !== "object") return;
-      if (cfg.default && typeof cfg.default === "object") DEFAULT = cfg.default;
+      if (!cfg || typeof cfg !== "object" || !cfg.default || typeof cfg.default !== "object") throw new Error("配置结构无效");
+      DEFAULT = cfg.default;
       if (Array.isArray(cfg.presets) && cfg.presets.length) PRESETS = cfg.presets;
       try {
         var sel = $("preset");
@@ -1399,9 +1436,13 @@ Layer Input (GB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层�
         });
         sel.value = "custom";
       } catch (e) { /* 兼容性兜底：保留 HTML 静态选项 */ }
-      setDefaults();
-      setMsg("已加载外部预设 presets.json（" + PRESETS.length + " 个预设）", "ok");
-    }).catch(function () { /* 加载失败：使用内置 fallback 预设 */ });
+      if (!SYNC_APPLIED) {
+        setDefaults();
+        setMsg("已加载外部预设 presets.json（" + PRESETS.length + " 个预设）", "ok");
+      }
+    }).catch(function (e) {
+      setMsg("外部预设 presets.json 加载/解析失败（" + (e && e.message ? e.message : "未知错误") + "），已用内置预设。若以 file:// 直接打开文件将无法 fetch，请改用本地 http 服务访问。", "err");
+    });
   }
 })();
 </script>

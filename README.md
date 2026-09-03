@@ -23,8 +23,39 @@ python3 -m http.server 8017 --directory .
 回归测试（可选，需要 Node.js）：
 
 ```bash
-node tests/verify_mem.js
+node tests/verify_mem.js      # 主仿真器（显存 + 通信）
+node tests/verify_dsv4.js     # DeepSeekV4 参数量/动态激活显存页
+node tests/verify_sync.js     # 同步桥接链路（写入/跳转/消费/fetch 不覆盖）
 ```
+
+## 配套页面：DeepSeekV4 参数量与动态激活显存
+
+`deepseek4.html`（主页右上角"DeepSeekV4 参数量 / 激活显存 ›"可进入）：参照
+`DeepSeek4_参数量及MFU计算.xlsx`（v4pro / v4flash 两页）与 `dsk4_显存分析.xlsx` 的口径实现：
+
+- **模型总参数量**：v·h 词表 + 每层 DSA Attn(含 mhc) + Indexer×L_i + Compressor=4×L_c4 + Compressor=128×L_c128
+  + MoE（routed n_router + shared n_share）。
+- **模型激活参数量**：v·h + L_moE×(DSA Attn + TopK×单专家 + n_shared×单专家)，随 TopK 变化。
+- 结构预设（v4pro）加载自 `dsv4_presets.json`，**校准自 DeepSeek4_参数量及MFU计算.xlsx 的 v4pro 页**：
+  Lmoe=96、TopK=16、n_router=1024、n_share=1、f_e=4096（×r_e=2）、Li=30 / Lc4=30 / Lc128=31。
+  输出与 Excel 逐项一致：模型总参数量 **8698.184466432 B（≈8.70T）**、模型激活参数量 **173.59568896 B**、
+  单层 DSA Attn（含 mhc）0.30127 B、单专家 0.08808 B（单层 MoE 合计 90.282 B）。
+  页面内置同值 fallback（fetch 失败时回退），修改预设只需改 json。
+- **动态激活显存（GiB）**：校准自 dsk4_显存分析.xlsx 的 pro 页（与 v4pro 同构：96 层、TopK=16、
+  f_e=4096、nr=1024、TP=1）。逐项与表一致：layer input 0.21875、logits 0.98633、cross entropy 1.97266、
+  loss 峰值 4.93164；单层 Attention 临时（表 G40，含 mhc）= **2.40625**，单层 MoE 临时（表 G49，含 mhc）=
+  **4.96094**，单层激活（表 J43）= **7.3672**，总激活（表 J44）= **707.25**（×96 层）；重计算保存层输入 = 21。
+  关键口径：router 临时 = s·b·n_router·TopK 字节（核对五页 router 值全部吻合）；mhc 在 attention 与 MoE 两图
+  峰值各保有一份。
+
+"同步到仿真器"：页面右上角"⇢ 同步到仿真器"按钮将单层 DSA Attn 参数量、单个专家参数量、
+单层动态激活（GiB）以及结构字段（MoE 层数 / 路由专家数 / TopK / f_e / hidden / seq_len）
+写入 localStorage 后**自动跳转**至主仿真器 index.html；主界面一次性应用全部字段（应用后清除），
+并在顶部配置消息区完整列出修改了哪些输入；外部预设 fetch 完成后不会覆盖已同步的输入。
+
+注：动态激活按公式字面实现；参考显存表 v4pro 页使用 topk=16 且 router 维度取 8,192，
+本页默认 topk=30（与参数量表 v4pro 一致），router 按 n_router 计，故与显存表不完全相同的输入
+下数值略有差异（输入对齐后一致）。
 
 ## 当前建模内容（v0.1 · 显存）
 
@@ -158,6 +189,8 @@ DeepSeekV4 默认（EFSDP=16，EP=128，dtype=2 BF16）：有效超节点 1024/1
 FSDP 2048 / EP 128 / EFSDP 16 / CP 1、Recompute=True、SwapOptimizer=False、SwapActivation=False、单卡 HBM 96GB
 （总参数 ≈ 8.26T，卡数 2048）；网络：机内 100GB/s×16、超节点 200GB/s×1024、
 超节点间 50GB/s、FSDP dtype=BF16（默认，下拉可按 FP32/FP8 切换）。页面初始示例即此预设参数。
+预设配置抽离在 `presets.json`（主仿真器）与 `dsv4_presets.json`（DeepSeekV4 结构页），
+页面加载时 fetch 覆盖内置 fallback 并重建预设下拉；修改预设只需改 JSON。
 Layer Input 按 BF16（2 字节/元素）折算，EP Alltoall / FSDP Allgather dtype 亦为 BF16
 （`ACTIVATION_BYTES` / `MOE_DTYPE_BYTES`，FSDP 载荷字节数由输入 `fsdpDtype` 调节）。
 
