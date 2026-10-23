@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pickle
+*.pkl
+*.db
+*.db-shm
+*.db-wal

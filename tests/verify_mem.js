@@ -183,10 +183,11 @@ els['preset'].value = 'deepseek-v4-10t';
 els['preset'].selectedIndex = 1;
 __t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:8, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false });
 const cfgObj = __t.buildExportConfig();
-const expected = { name:'DeepSeekV4 10T(预估)', version:1,
+const expected = { name:'DeepSeekV4 10T(预估)', version:2,
   model:{attnB:0.301,expertB:0.066,numExperts:2048,layers:61,seqLen:2048,hiddenSize:7168,moeHidden:3072,topk:30,activationGB:5.21},
   parallel:{fsdp:2048,ep:128,efsdp:16,cp:1,hbmGB:96},
-  network:{intraBW:100,intraSize:8,superBW:200,superSize:1024,interBW:50,fsdpDtype:2,util:0.8},
+  network:{intraBW:100,intraSize:8,superBW:200,superSize:1024,interBW:50,fsdpDtype:2,allGatherDtype:2,reduceScatterDtype:2,util:0.8},
+  memory:{paramBytes:4,gradBytes:4,optimizerBytes:8,swapOptimizerResidentGB:0,swapActivationResidentGB:0,quantCacheGB:0,otherWorkspaceGB:0,microBatch:1,prefetchUnits:1,computePrecision:'bf16'},
   options:{recompute:true,swapOptimizer:false,swapActivation:false} };
 assertEq('export cfg JSON', JSON.stringify(cfgObj), JSON.stringify(expected));
 els['preset'].value = 'custom';
@@ -196,6 +197,7 @@ __t.exportConfig();
 assertContains('export msg', els['cfg-msg'].textContent, '已导出配置');
 console.log('--- Pass F OK ---\n');
 
+els['rsDtype'].value = '4'; // Independent FP32 reduction for the default capacity checks.
 /* Pass G: SwapOptimizer=True → 仅单卡优化器=0，集群口径不变 */
 els['swap'].checked = true;
 __t.compute();
@@ -205,7 +207,7 @@ assertEq('swap kpi-hbm', readNum('kpi-hbm'), '占 96 GiB HBM：46.4%');
 assertEq('swap cluster-static 不变', readNum('cluster-static'), '123,137.37 GiB（120.25 TB）');
 assertEq('swap cluster-total 不变',  readNum('cluster-total'),  '123,455.18 GiB（120.56 TB）');
 assertContains('swap 单卡优化器=0', els['card-list'].innerHTML, 'class="val">0 GiB');
-assertContains('swap 单卡标注', els['card-list'].innerHTML, 'SwapOptimizer：交换出卡');
+assertContains('swap 单卡标注', els['card-list'].innerHTML, '交换后驻留 / 工作区（需填写）');
 assertContains('swap 集群优化器保留', els['cluster-list'].innerHTML, '61,568.68 GiB');
 if (els['cluster-list'].innerHTML.includes('SwapOptimizer')) { console.error('[FAIL] 集群不应出现 Swap 标注'); fail = 1; }
 else console.log('[OK] 集群无 Swap 标注');
@@ -315,7 +317,7 @@ const pcfg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'presets.json
 assertEq('presets.json default.moeHidden', pcfg.default.moeHidden, 3072);
 assertEq('presets.json default.intraBW', pcfg.default.intraBW, 100);
 assertEq('presets.json default.hidden', pcfg.default.hidden, 7168);
-assertEq('presets.json 预设数', (pcfg.presets || []).length + '', '1');
+assertEq('presets.json 预设数', (pcfg.presets || []).length + '', '3');
 assertEq('presets.json 预设 id', pcfg.presets[0].id, 'deepseek-v4-10t');
 assertEq('presets.json 预设 moeHidden', pcfg.presets[0].values.moeHidden, 3072);
 assertEq('presets.json 预设 intraBW', pcfg.presets[0].values.intraBW, 100);
@@ -330,18 +332,43 @@ assertEq('外部预设 util 生效', els['util'].value, 0.8);
 console.log('--- Pass K OK ---\n');
 
 /* Pass L: SwapActivation=True → Layer Input = 0（仅单卡口径，集群不变） */
-__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:8, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false, swapact:true });
+__t.applyValues({ attn:0.301, exp:0.066, nExp:2048, layers:61, seqLen:2048, hidden:7168, moeHidden:3072, topk:30, act:5.21, fsdp:2048, ep:128, efsdp:16, cp:1, hbm:96, intraBW:100, intraSize:8, superBW:200, superSize:1024, interBW:50, fsdpDtype:2, util:0.8, recompute:true, swap:false, swapact:true, rsDtype:4 });
 __t.compute();
 assertEq('swapact 单卡总显存', readNum('kpi-total'), '72.92 GiB');
 assertEq('swapact card-total', readNum('card-total'), '72.92 GiB');
 assertEq('swapact kpi-hbm', readNum('kpi-hbm'), '占 96 GiB HBM：76%');
 assertContains('swapact Layer Input=0', els['card-list'].innerHTML, 'class="val">0 GiB');
-assertContains('swapact 标注', els['card-list'].innerHTML, 'SwapActivation：交换出卡');
+assertContains('swapact 标注', els['card-list'].innerHTML, '交换后驻留 / 预取（需填写）');
 assertEq('swapact 集群总显存不变', readNum('cluster-total'), '123,455.18 GiB（120.56 TB）');
 els['swapact'].checked = false;
 __t.compute();
 assertEq('swapact 关闭恢复', readNum('card-total'), '74.59 GiB');
 console.log('--- Pass L OK ---\n');
 
+
+/* Independent precision, offload residency and v1 compatibility. */
+__t.applyPreset('deepseek-v4-10t');
+const commBefore=JSON.stringify(__t.computeComm('fsdp'));
+els.rsDtype.value=2;
+assertEq('RS changes do not affect AG',JSON.stringify(__t.computeComm('fsdp')),commBefore);
+els.rsDtype.value=4;
+assertEq('FP32 RS double BF16 AG',__t.computeComm('fsdp','rs').recvTotalMB,2*__t.computeComm('fsdp').recvTotalMB);
+els.swap.checked=true; els.swapact.checked=true; __t.compute();
+const before=parseFloat(els['card-total'].textContent.replace(/,/g,''));
+els.swapOptimizerResidentGB.value=3; els.swapActivationResidentGB.value=2; __t.compute();
+assertEq('Offload retains five GiB',Math.round((parseFloat(els['card-total'].textContent.replace(/,/g,''))-before)*100)/100,5);
+let round=__t.normalizeCfg(__t.buildExportConfig());
+assertEq('v2 RS round trip',round.rsDtype,4);
+assertEq('v2 residual round trip',round.swapActivationResidentGB,2);
+const legacy=JSON.parse(JSON.stringify(expected));delete legacy.memory;legacy.version=1;delete legacy.network.allGatherDtype;delete legacy.network.reduceScatterDtype;
+round=__t.normalizeCfg(legacy);
+assertEq('v1 AG mapping',round.fsdpDtype,2);assertEq('v1 RS mapping',round.rsDtype,2);
+for(const arm of ['bf16','mxfp8']) {
+  __t.applyPreset('snapshot-'+arm);
+  assertEq(arm+' AG BF16',Number(els.fsdpDtype.value),2);
+  assertEq(arm+' RS FP32',Number(els.rsDtype.value),4);
+  assertEq(arm+' FP32 parameters',Number(els.paramBytes.value),4);
+  assertEq(arm+' MBS',Number(els.microBatch.value),1);
+}
 if (fail) { console.error('TESTS FAILED'); process.exit(1); }
 console.log('ALL TESTS PASSED');

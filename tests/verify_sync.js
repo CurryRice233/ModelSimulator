@@ -70,13 +70,14 @@ function assertContains(name, actual, needle) {
   assertEq('payload.layers', payload.layers, 96);
   assertEq('payload.nExp', payload.nExp, 1024);
   assertEq('payload.act', payload.act, 7.3671875);
+  assertEq('payload.microBatch', payload.microBatch, 1);
   console.log('--- Pass S1 OK ---\n');
 
   /* Pass S2: index.html 一次性消费完整 payload，且 fetch 完成后不被覆盖 */
   delete global.window;
   env = buildEnv({
     attn: 0.301268992, exp: 0.088080384, act: 7.3671875,
-    layers: 96, nExp: 1024, topk: 16, moeHidden: 4096, hidden: 7168, seqLen: 4096
+    layers: 96, nExp: 1024, topk: 16, moeHidden: 4096, hidden: 7168, seqLen: 4096, microBatch: 3
   }, 'index.html');
   assertEq('attn 应用', env.els['attn'].value, 0.301268992);
   assertEq('exp 应用', env.els['exp'].value, 0.088080384);
@@ -86,6 +87,7 @@ function assertContains(name, actual, needle) {
   assertEq('topk 应用', env.els['topk'].value, 16);
   assertEq('moeHidden 应用', env.els['moeHidden'].value, 4096);
   assertEq('seqLen 应用', env.els['seqLen'].value, 4096);
+  assertEq('microBatch 应用', env.els.microBatch.value, 3);
   assertContains('提示文案', env.els['cfg-msg'].textContent, '已从 DeepSeekV4 页同步');
   assertContains('提示含 96 层', env.els['cfg-msg'].textContent, '96 层');
   assertEq('同步键已清除', env.localStorage.getItem('dsv4_sync'), null);

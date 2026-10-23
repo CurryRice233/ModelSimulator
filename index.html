@@ -417,10 +417,10 @@
   </section>
 
   <section class="panel-section">
-    <h3>🧠 模型参数 <span class="tl-note">FP32：1 B ≈ 3.725 GiB</span></h3>
+    <h3>🧠 模型参数 <span class="tl-note">存储精度见驻留假设</span></h3>
     <div class="field-grid">
       <div class="field">
-        <label for="attn">单层 Attention 参数量</label>
+        <label for="attn">单层非路由参数量（含 Attention）</label>
         <div class="unitbox"><input id="attn" type="number" step="any" min="0" value="1.0"><span class="unit">B</span></div>
       </div>
       <div class="field">
@@ -493,13 +493,13 @@
         <input type="checkbox" id="swap">
         <span class="track"></span>
         <span class="switch-label">SwapOptimizer</span>
-        <span class="switch-note">开启后单卡优化器 = 0</span>
+        <span class="switch-note">交换至 Host；另计驻留工作区</span>
       </label>
       <label class="switch">
         <input type="checkbox" id="swapact">
         <span class="track"></span>
         <span class="switch-label">SwapActivation</span>
-        <span class="switch-note">开启后 Layer Input = 0</span>
+        <span class="switch-note">交换激活；另计驻留 / 预取窗口</span>
       </label>
     </div>
   </section>
@@ -528,11 +528,13 @@
         <div class="unitbox"><input id="interBW" type="number" step="any" min="0" value="50"><span class="unit">GiB/s</span></div>
       </div>
       <div class="field">
-        <label for="fsdpDtype">FSDP 通信 dtype</label>
+        <label for="rsDtype">梯度 ReduceScatter dtype</label>
+        <select id="rsDtype"><option value="4" selected>FP32（4 B）</option><option value="2">BF16（2 B）</option><option value="1">FP8（1 B，未计 scale）</option></select>
+        <label for="fsdpDtype">参数 AllGather dtype</label>
         <select id="fsdpDtype">
           <option value="4">FP32（4 B）</option>
           <option value="2" selected>BF16（2 B）</option>
-          <option value="1">FP8（1 B）</option>
+          <option value="1">FP8（1 B，未计 scale）</option>
         </select>
       </div>
       <div class="field">
@@ -546,6 +548,7 @@
     <button id="reset" type="button">↺ 重置为示例参数</button>
   </div>
   <div class="warn-banner" id="warn"></div>
+<details id="residency-assumptions"><summary>内存存储与驻留假设</summary><p class="k-sub">0 表示该项未建模；交换开关本身不能证明实际显存为零。各输入必须互斥，勿重复计入激活或工作区。</p><div class="field-grid"><div class="field"><label for="paramBytes">参数存储字节 / 元素</label><input id="paramBytes" type="number" min="0" step="any" value="4"></div><div class="field"><label for="gradBytes">梯度存储字节 / 元素</label><input id="gradBytes" type="number" min="0" step="any" value="4"></div><div class="field"><label for="optimizerBytes">优化器状态字节 / 参数（Adam 常用 8）</label><input id="optimizerBytes" type="number" min="0" step="any" value="8"></div><div class="field"><label for="swapOptimizerResidentGB">交换后优化器驻留 / 工作区（GiB）</label><input id="swapOptimizerResidentGB" type="number" min="0" step="any" value="0"></div><div class="field"><label for="swapActivationResidentGB">交换后激活驻留 / 预取（GiB）</label><input id="swapActivationResidentGB" type="number" min="0" step="any" value="0"></div><div class="field"><label for="quantCacheGB">量化副本及 scale 缓冲（GiB）</label><input id="quantCacheGB" type="number" min="0" step="any" value="0"></div><div class="field"><label for="otherWorkspaceGB">其他已知工作区（GiB）</label><input id="otherWorkspaceGB" type="number" min="0" step="any" value="0"></div><div class="field"><label for="microBatch">Micro batch size</label><input id="microBatch" type="number" min="0" step="any" value="1"></div><div class="field"><label for="prefetchUnits">同时驻留的完整参数单元数</label><input id="prefetchUnits" type="number" min="0" step="any" value="1"></div></div><div class="field"><label for="computePrecision">计算精度（独立于参数存储 / 通信）</label><select id="computePrecision"><option value="bf16">BF16</option><option value="mxfp8">Full MXFP8</option></select></div></details>
 </aside>
 
 <!-- 右侧参数面板拖拽调宽手柄（独立于面板滚动内容） -->
@@ -561,23 +564,27 @@
     <a class="navlink" href="./deepseek4.html">DeepSeekV4 参数量 / 激活显存 ›</a>
   </header>
 
+  <div class="card" style="margin-bottom:16px;">
+    <h2>内存估算的适用范围</h2>
+    <p>下方公式合计是假设各项同时驻留的容量估算，不是训练步实测峰值，也不包含未建模的通信库、分配器缓存和驱动占用。不同生命周期的峰值不可直接相加。GiB = 2³⁰ 字节。</p>
+  </div>
   <div class="kpis">
     <div class="kpi"><div class="k-label" style="white-space:nowrap;">单个完整 DP 域卡数 MAX(FSDP×CP, EP×EFSDP×CP)</div>
       <div class="k-value" id="kpi-cards">—</div>
       <div class="k-sub" id="kpi-cards-sub"></div></div>
-    <div class="kpi"><div class="k-label">总模型权重 FP32（全集群）</div>
+    <div class="kpi"><div class="k-label">总模型权重（全集群）</div>
       <div class="k-value" id="kpi-totalw">—</div>
       <div class="k-sub" id="kpi-totalw-sub">FP32 模型权重</div></div>
-    <div class="kpi"><div class="k-label">单卡模型权重 FP32</div>
+    <div class="kpi"><div class="k-label">单卡模型权重</div>
       <div class="k-value" id="kpi-cardw">—</div>
       <div class="k-sub" id="kpi-cardw-sub"></div></div>
-    <div class="kpi"><div class="k-label">单卡总显存</div>
+    <div class="kpi"><div class="k-label">单卡容量估算（组件合计）</div>
       <div class="k-value" id="kpi-total">—</div>
       <div class="k-sub" id="kpi-hbm"></div></div>
   </div>
 
   <div class="card" style="margin-top:16px;">
-    <h2>💾 显存明细</h2>
+    <h2>💾 显存公式明细</h2><p class="k-sub">参数与梯度是独立存储口径；优化器默认按 Adam 的 2×FP32 状态建模，Muon 等实现请填写实际状态和工作区。</p>
     <div class="mem-compare">
       <div class="comm-col">
         <h3>🌐 集群维度显存 <small>全集群合计</small></h3>
@@ -600,13 +607,21 @@
         <div class="stack" id="card-stack"></div>
         <div class="stack-legend" id="card-legend"></div>
         <div class="section-total section-total-lg">
-          <span class="t-label">单卡总显存（七项合计）</span>
+          <span class="t-label">单卡容量估算（组件合计）</span>
           <span class="t-value" id="card-total">—</span>
         </div>
       </div>
     </div>
   </div>
 
+  <div class="card" style="margin-top:16px;" id="snapshot-reference">
+    <h2>实测快照参考：DeepSeek4 UAM</h2>
+    <p class="k-sub">固定配置的历史实测，不随右侧估算参数变化。31 主层 + MTP，6 专家 / TopK6，seq4096，MBS1，FSDP8 / EP2 / EFSDP4，Muon / UAM。两组均 BF16 参数 AllGather、FP32 ReduceScatter。</p>
+    <div id="snapshot-metrics" style="overflow-x:auto"></div>
+    <p id="snapshot-note" class="k-sub"></p>
+    <details><summary>同一 allocated 峰值时的分类（按调用栈归因）</summary><div id="snapshot-categories" style="overflow-x:auto"></div></details>
+    <p><a href="docs/snapshot-memory-correction.md">采集、验证和公式修正依据</a></p>
+  </div>
   <div class="card" style="margin-top:16px;">
     <h2>📡 通信耗时对比</h2>
     <div class="comm-compare">
@@ -697,21 +712,14 @@
     <summary>📐 查看全部计算公式（当前版本）</summary>
     <div class="f-body">
       约定：参数量单位 B（十亿参数），FP32 换算系数 GiB/B = 4 × 10⁹ / 1024³ ≈ 3.7253
-      （即 B × 10⁹ × 4 / 1024³ = GiB）；动态激活输入单位即 GiB，无需换算。公式逐条对应需求文档 v0.1。
+      （即 B × 10⁹ × 4 / 1024³ = GiB）；动态激活输入单位即 GiB，无需换算。采用当前存储和驻留假设。
       <code>单个完整 DP 域卡数 = MAX(FSDP × CP, EP × EFSDP × CP)</code>
-      <code>总模型权重 FP32 (GiB) = (单层 Attention 参数量 + 单个专家参数量 × 专家数量) × 层数 × (4×10⁹/1024³)</code>
-      <code>总模型梯度 FP32 (GiB) = 总模型权重 FP32 (GiB)
-总优化器 2×FP32 (GiB) = 总模型权重 FP32 (GiB) × 2（集群口径不随 SwapOptimizer 变化）
-总静态显存 (GiB) = 权重 + 梯度 + 优化器</code>
-      <code>总动态激活 (GiB) = 单层动态激活 / CP × 层数</code>
-      <code>单卡模型权重 FP32 (GiB) = (单层 Attention 参数量 / FSDP + ((单个专家参数量 × 专家数量) / (EP × EFSDP))) × 层数 × (4×10⁹/1024³)</code>
-      <code>单卡模型梯度 FP32 (GiB) = 单卡模型权重 FP32 (GiB)
-单卡优化器 2×FP32 (GiB) = 单卡模型权重 FP32 (GiB) × 2；SwapOptimizer=True 时 = 0（优化器交换至 Host，不占显存）</code>
-      <code>单卡动态激活 (GiB) = Recompute ? 总动态激活 / 层数 : 总动态激活</code>
-      <code>单层预取权重 BF16 (GiB) = (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × (2×10⁹/1024³)
-单层临时梯度 FP32 (GiB) = 单层预取权重 BF16 (GiB) × 2
-Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层数 × 2（BF16 字节）/ 1024³</code>
-      <code>单卡总显存 (GiB) = 权重 + 梯度 + 优化器 + 动态激活 + Layer Input + 预取权重 + 临时梯度</code>
+      <code>分片参数 / 梯度 = (非路由参数/FSDP + 路由参数/(EP×EFSDP)) × 对应存储字节数。
+完整参数缓冲 = 单元参数 × AllGather 字节数 × 驻留单元数；完整梯度缓冲 = 单元参数 × ReduceScatter 字节数。
+交换优化器 / 激活后，使用显式驻留缓冲输入；0 表示未建模。
+层输入 = seq × MBS × hidden × layers / CP × 2 / 1024³；激活输入需由用户按 MBS 等条件提供。
+组件合计仅是共同驻留假设下的估算。真实峰值 = max_t Σ 去重后的存活分配(t)，不可相加各组件独立峰值。
+allocated、active、reserved、设备物理占用分别报告；FP8 通信的 scale / padding 需额外建模。</code>
       <code>EP Alltoall（均衡）：
 通信域 = EP
 总接受数据 (MB) = 序列长度 × Hidden Size × 2(BF16) × TopK / 1024² / 通信域 × (通信域 − 1)
@@ -725,7 +733,7 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
 通信耗时 = 总接受数据(GiB) / 算法带宽；瓶颈层 = 耗时最大的层级</code>
       <code>FSDP Allgather / ReduceScatter（分层）：
 通信域 = FSDP
-总接受数据 (MB) = 单层 Attention 参数量 × 10⁹ × dtype 字节 / 1024² / 通信域 × (通信域 − 1)
+总接受数据 (MB) = 单层非路由参数量（含 Attention） × 10⁹ × dtype 字节 / 1024² / 通信域 × (通信域 − 1)
 每份数据 (MB) = 总接受数据 / (通信域 − 1)
 总流量 = 通信域 − 1
 机内流量 = 总流量 − 超节点内流量 − 超节点间流量
@@ -766,6 +774,12 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
   </div>
 </div>
 
+<style>
+  #snapshot-reference table { width:100%; border-collapse:collapse; margin:12px 0; font-size:14px; }
+  #snapshot-reference th, #snapshot-reference td { padding:9px 12px; text-align:right; border-bottom:1px solid rgba(100,116,139,.2); white-space:nowrap; }
+  #snapshot-reference th:first-child, #snapshot-reference td:first-child { text-align:left; white-space:normal; overflow-wrap:anywhere; }
+  #snapshot-reference p { line-height:1.65; }
+</style>
 <script>
 (function () {
   "use strict";
@@ -777,27 +791,141 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     seqLen: 2048, hidden: 7168, moeHidden: 3072,
     fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
     intraBW: 100, intraSize: 8, superBW: 200, superSize: 1024,
-    interBW: 50, fsdpDtype: 2, util: 0.8,
+    interBW: 50, fsdpDtype: 2, rsDtype: 4, util: 0.8,
+    paramBytes: 4, gradBytes: 4, optimizerBytes: 8, swapOptimizerResidentGB: 0, swapActivationResidentGB: 0, quantCacheGB: 0, otherWorkspaceGB: 0, microBatch: 1, prefetchUnits: 1, computePrecision: "bf16",
     recompute: true, swap: false, swapact: false
   };
 
   /* 预设配置 */
   var SYNC_APPLIED = false; /* DeepSeekV4 页同步已应用：fetch 完成时不再重置输入 */
   var PRESETS = [
-    { id: "deepseek-v4-10t", name: "DeepSeekV4 10T(预估)",
-      values: {
-        attn: 0.301, exp: 0.066, nExp: 2048, layers: 61, topk: 30, act: 5.21,
-        seqLen: 2048, hidden: 7168, moeHidden: 3072,
-        fsdp: 2048, ep: 128, efsdp: 16, cp: 1, hbm: 96,
-        intraBW: 100, intraSize: 8, superBW: 200, superSize: 1024,
-        interBW: 50, fsdpDtype: 2, util: 0.8,
-        recompute: true, swap: false, swapact: false
-      } }
-  ];
+  {
+    "id": "deepseek-v4-10t",
+    "name": "DeepSeekV4 10T(预估)",
+    "values": {
+      "attn": 0.301,
+      "exp": 0.066,
+      "nExp": 2048,
+      "layers": 61,
+      "topk": 30,
+      "act": 5.21,
+      "seqLen": 2048,
+      "hidden": 7168,
+      "moeHidden": 3072,
+      "fsdp": 2048,
+      "ep": 128,
+      "efsdp": 16,
+      "cp": 1,
+      "hbm": 96,
+      "intraBW": 100,
+      "intraSize": 8,
+      "superBW": 200,
+      "superSize": 1024,
+      "interBW": 50,
+      "fsdpDtype": 2,
+      "util": 0.8,
+      "recompute": true,
+      "swap": false,
+      "swapact": false,
+      "paramBytes": 4,
+      "gradBytes": 4,
+      "optimizerBytes": 8,
+      "swapOptimizerResidentGB": 0,
+      "swapActivationResidentGB": 0,
+      "quantCacheGB": 0,
+      "otherWorkspaceGB": 0,
+      "microBatch": 1,
+      "prefetchUnits": 1,
+      "rsDtype": 4,
+      "computePrecision": "bf16"
+    }
+  },
+  {
+    "id": "snapshot-bf16",
+    "name": "2026-10-23 BF16 实测配置（容量项待校准）",
+    "values": {
+      "attn": 0.45662582175,
+      "exp": 0.066060288,
+      "nExp": 6,
+      "layers": 32,
+      "topk": 6,
+      "act": 0,
+      "seqLen": 4096,
+      "hidden": 7168,
+      "moeHidden": 3072,
+      "fsdp": 8,
+      "ep": 2,
+      "efsdp": 4,
+      "cp": 1,
+      "hbm": 96,
+      "intraBW": 100,
+      "intraSize": 8,
+      "superBW": 200,
+      "superSize": 1024,
+      "interBW": 50,
+      "fsdpDtype": 2,
+      "util": 0.8,
+      "recompute": true,
+      "swap": true,
+      "swapact": true,
+      "paramBytes": 4,
+      "gradBytes": 4,
+      "optimizerBytes": 8,
+      "swapOptimizerResidentGB": 0,
+      "swapActivationResidentGB": 0,
+      "quantCacheGB": 0,
+      "otherWorkspaceGB": 0,
+      "microBatch": 1,
+      "prefetchUnits": 1,
+      "rsDtype": 4,
+      "computePrecision": "bf16"
+    }
+  },
+  {
+    "id": "snapshot-mxfp8",
+    "name": "2026-10-23 MXFP8 实测配置（容量项待校准）",
+    "values": {
+      "attn": 0.45662582175,
+      "exp": 0.066060288,
+      "nExp": 6,
+      "layers": 32,
+      "topk": 6,
+      "act": 0,
+      "seqLen": 4096,
+      "hidden": 7168,
+      "moeHidden": 3072,
+      "fsdp": 8,
+      "ep": 2,
+      "efsdp": 4,
+      "cp": 1,
+      "hbm": 96,
+      "intraBW": 100,
+      "intraSize": 8,
+      "superBW": 200,
+      "superSize": 1024,
+      "interBW": 50,
+      "fsdpDtype": 2,
+      "util": 0.8,
+      "recompute": true,
+      "swap": true,
+      "swapact": true,
+      "paramBytes": 4,
+      "gradBytes": 4,
+      "optimizerBytes": 8,
+      "swapOptimizerResidentGB": 0,
+      "swapActivationResidentGB": 0,
+      "quantCacheGB": 0,
+      "otherWorkspaceGB": 0,
+      "microBatch": 1,
+      "prefetchUnits": 1,
+      "rsDtype": 4,
+      "computePrecision": "mxfp8"
+    }
+  }
+];
 
   /* 参数量(B) → FP32 显存(GiB)：B × 10^9 × 字节数(FP32=4) / 1024^3 ≈ B × 3.7253 */
-  var BYTES_PER_PARAM = 4; /* FP32，后续可扩展 BF16(2)/FP8(1) */
-  var GB_PER_B = BYTES_PER_PARAM * 1e9 / Math.pow(1024, 3); /* ≈ 3.7252903 */
+
 
   /* Layer Input 按激活精度计（默认 BF16 = 2 字节/元素） */
   var ACTIVATION_BYTES = 2;
@@ -860,34 +988,38 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     var expertsPB = expB * nExp;                    /* 单层 MoE 全部专家参数量 (B) */
     var layerWB   = attnB + expertsPB;              /* 单层总参数量 (B) */
     var totalParamsB = layerWB * layers;            /* 总参数量 (B) */
-    var totalW    = totalParamsB * GB_PER_B;        /* 总权重 FP32 (GiB) */
-    var totalG    = totalW;
-    var totalO    = totalW * 2;          /* 集群口径不随 SwapOptimizer 变化 */
+    var totalW    = totalParamsB * num("paramBytes") * 1e9 / Math.pow(1024,3);        /* 总权重 FP32 (GiB) */
+    var totalG    = totalParamsB * num("gradBytes") * 1e9 / Math.pow(1024,3);
+    var totalO    = totalParamsB * num("optimizerBytes") * 1e9 / Math.pow(1024,3);          /* 集群口径不随 SwapOptimizer 变化 */
     var totalStatic = totalW + totalG + totalO;
     var totalAct  = act / cp * layers;              /* 动态激活输入已是 GiB，无需换算 */
     var clusterTotal = totalStatic + totalAct;
 
     /* ----- 单卡维度 ----- */
     /* 单卡权重 = (单层Attn/FSDP + 单专家×专家数/(EP×EFSDP)) × 层数 × 换算系数 */
-    var cardW = (attnB / fsdp + expertsPB / (ep * efsdp)) * layers * GB_PER_B;
-    var cardG = cardW;
-    var cardO = swap ? 0 : cardW * 2;               /* SwapOptimizer=True：交换出卡 → 0 */
+    var cardParamsB = (attnB / fsdp + expertsPB / (ep * efsdp)) * layers;
+    var cardW = cardParamsB * num("paramBytes") * 1e9 / Math.pow(1024,3);
+    var cardG = cardParamsB * num("gradBytes") * 1e9 / Math.pow(1024,3);
+    var cardO = swap ? num("swapOptimizerResidentGB") : cardParamsB * num("optimizerBytes") * 1e9 / Math.pow(1024,3);               /* Offload may retain staging/state/workspace; supplied explicitly. */
     var cardAct = recompute ? totalAct / layers : totalAct;
     /* 单层预取权重 BF16 = (单层 Attn + 单专家 × 专家数/EP) × (2×10⁹/1024³) */
-    var BF16_PER_B = 2 * 1e9 / Math.pow(1024, 3);
-    var prefetchW = (attnB + expB * (nExp / ep)) * BF16_PER_B;
-    var tempG     = prefetchW * 2;   /* 单层临时梯度 FP32 = 预取权重 BF16 × 2 */
-    /* Layer Input(层输入) = SwapActivation ? 0 : 序列长度 × hidden size × 层数 × 激活字节数 / 1024³ */
+    var fullUnitB = attnB + expB * (nExp / ep);
+    var prefetchW = fullUnitB * num("fsdpDtype") * 1e9 / Math.pow(1024,3) * num("prefetchUnits");
+    var tempG     = fullUnitB * num("rsDtype") * 1e9 / Math.pow(1024,3);   /* Reduction precision is independent of all-gather precision. */
+    /* Activation offload retains a user-supplied live window. */
     var layerInputGB = swapact
-      ? 0
-      : seqLen * hidden * layers * ACTIVATION_BYTES / Math.pow(1024, 3);
-    var cardTotal = cardW + cardG + cardO + cardAct + prefetchW + tempG + layerInputGB;
+      ? num("swapActivationResidentGB")
+      : seqLen * hidden * layers * num("microBatch") / cp * ACTIVATION_BYTES / Math.pow(1024, 3);
+    var cardTotal = cardW + cardG + cardO + cardAct + prefetchW + tempG + layerInputGB + num("quantCacheGB") + num("otherWorkspaceGB");
 
     /* ---------- 通信：EP Alltoall / FSDP Allgather-RS 并排渲染 ---------- */
     renderCommAll();
 
     /* ---------- 校验 ---------- */
     var problems = [];
+    ["paramBytes", "gradBytes", "optimizerBytes", "swapOptimizerResidentGB", "swapActivationResidentGB", "quantCacheGB", "otherWorkspaceGB", "microBatch", "prefetchUnits"].forEach(function(k){if(!isFinite(num(k)) || num(k)<0) problems.push(k+" 必须为非负数");});
+    if([1,2,4].indexOf(num("paramBytes"))<0 || [1,2,4].indexOf(num("gradBytes"))<0) problems.push("参数 / 梯度字节数必须为 1、2 或 4");
+    if(num("microBatch")<1) problems.push("Micro batch size 必须 ≥ 1");
     if (fsdp < 1)                                problems.push("FSDP 必须 ≥ 1");
     if (ep < 1 || efsdp < 1 || cp < 1)           problems.push("EP / EFSDP / CP 必须 ≥ 1");
     if (layers < 1)                              problems.push("层数必须 ≥ 1");
@@ -911,7 +1043,7 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     $("kpi-cards").textContent = fmt(cards, 0) + " 卡";
     $("kpi-cards-sub").textContent = "FSDP×CP = " + fmt(fsdp * cp, 0) + " · EP×EFSDP×CP = " + fmt(ep * efsdp * cp, 0) + "，取最大";
     $("kpi-totalw").textContent = fmtGB(totalW);
-    $("kpi-totalw-sub").textContent = "总参数量 " + fmt(totalParamsB, 1) + " B（" + fmt(layerWB, 2) + " B/层）· FP32 1B≈3.725GiB";
+    $("kpi-totalw-sub").textContent = "总参数量 " + fmt(totalParamsB, 1) + " B（" + fmt(layerWB, 2) + " B/层）· "+num("paramBytes")+" B/参数";
     $("kpi-cardw").textContent = fmtGB(cardW);
     $("kpi-cardw-sub").textContent = "(单层Attn/FSDP + 专家×(N)/(EP×EFSDP)) × 层数";
     $("kpi-total").textContent = fmtGB(cardTotal);
@@ -928,9 +1060,9 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
 
     /* ---------- 集群清单 ---------- */
     var clusterRows = [
-      { key: "w", name: "模型权重 FP32",    note: "总模型权重",  v: totalW },
-      { key: "g", name: "模型梯度 FP32",    note: "= 权重",      v: totalG },
-      { key: "o", name: "优化器 2×FP32",    note: "= 权重 × 2",  v: totalO },
+      { key: "w", name: "模型权重",    note: "按参数存储字节数",  v: totalW },
+      { key: "g", name: "模型梯度",    note: "按梯度存储字节数",      v: totalG },
+      { key: "o", name: "优化器状态",    note: "按每参数状态字节数",  v: totalO },
       { key: "a", name: "动态激活",          note: "激活/CP×层数", v: totalAct }
     ];
     renderList("cluster-list", clusterRows, clusterTotal);
@@ -942,12 +1074,17 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     var cardRows = [
       { key: "w", name: "模型权重 FP32",    note: "单卡",          v: cardW },
       { key: "g", name: "模型梯度 FP32",    note: "= 单卡权重",    v: cardG },
-      { key: "o", name: "优化器 2×FP32",    note: swap ? "SwapOptimizer：交换出卡，不占显存" : "= 单卡权重 × 2", v: cardO },
+      { key: "o", name: "优化器 2×FP32",    note: swap ? "交换后驻留 / 工作区（需填写）" : "按每参数状态字节数", v: cardO },
       { key: "a", name: "动态激活",          note: recompute ? "Recompute：总激活/层数" : "无 Recompute：总激活", v: cardAct },
-      { key: "l", name: "Layer Input(层输入)", note: swapact ? "SwapActivation：交换出卡，不占显存" : "seq×hidden×层数×2B/1024³", v: layerInputGB },
-      { key: "p", name: "单层预取权重 BF16", note: "(Attn+专家×(N/EP))×(2×10⁹/1024³)", v: prefetchW },
-      { key: "t", name: "单层临时梯度 FP32", note: "= 预取权重 BF16 × 2", v: tempG }
+      { key: "l", name: "Layer Input(层输入)", note: swapact ? "交换后驻留 / 预取（需填写）" : "seq×MBS×hidden×层数/CP×2B/1024³", v: layerInputGB },
+      { key: "p", name: "完整参数 / 预取缓冲", note: "完整单元参数×AG字节×驻留单元数", v: prefetchW },
+      { key: "t", name: "完整梯度 / 归约缓冲", note: "完整单元参数×RS字节", v: tempG }
     ];
+    if(num("quantCacheGB")) cardRows.push({key:"p",name:"量化副本及 scale",note:"需与激活 / 工作区互斥",v:num("quantCacheGB")});
+    if(num("otherWorkspaceGB")) cardRows.push({key:"t",name:"其他已知工作区",note:"需与上述类别互斥",v:num("otherWorkspaceGB")});
+    cardRows[0].name="模型权重（"+num("paramBytes")+" B/元素）";
+    cardRows[1].name="模型梯度（"+num("gradBytes")+" B/元素）"; cardRows[1].note="独立于参数精度";
+    cardRows[2].name="优化器状态 / 工作区";
     renderList("card-list", cardRows, cardTotal);
     renderStack("card-stack", "card-legend", cardRows, cardTotal);
     $("card-total").textContent = fmtGB(cardTotal);
@@ -957,11 +1094,11 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
 
   /* ---------- 通信核心计算 ---------- */
   /* mode: "ep"（EP Alltoall 均衡）| "fsdp"（FSDP Allgather/RS 分层）| "efsdp"（EFSDP Allgather/RS 分层） */
-  function computeComm(mode) {
+  function computeComm(mode, operation) {
     var kind = mode === "ep" ? 0 : (mode === "fsdp" ? 1 : 2);   /* 0=Alltoall, 1=FSDP AG/RS, 2=EFSDP AG/RS */
     var dec  = kind > 0 ? 2 : 0;                                /* 分层 Allgather 份数可含小数 */
     var domain = Math.max(0, kind === 0 ? int("ep") : (kind === 1 ? int("fsdp") : int("efsdp")));
-    var fsdpDtype = Math.max(0, num("fsdpDtype"));
+    var fsdpDtype = Math.max(0, num(operation === "rs" ? "rsDtype" : "fsdpDtype"));
     var epDiv = Math.max(1, int("ep"));        /* EFSDP：有效层级大小 = 物理大小 / EP */
     var util = Math.max(0, num("util"));            /* 带宽利用率（默认 0.8） */
     var intraBW = num("intraBW"), intraSize = Math.max(1, int("intraSize"));
@@ -979,7 +1116,7 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
         recvTotalMB = Math.max(0, int("seqLen")) * Math.max(0, int("hidden")) * MOE_DTYPE_BYTES
                     * Math.max(0, int("topk")) / 1024 / 1024 / domain * (domain - 1);
       } else if (kind === 1) {
-        /* 单层 Attention 参数量(B) × 10⁹ × dtype / 1024² / 域 × (域−1) */
+        /* 单层非路由参数量（含 Attention）(B) × 10⁹ × dtype / 1024² / 域 × (域−1) */
         recvTotalMB = Math.max(0, num("attn")) * 1e9 * fsdpDtype / 1024 / 1024 / domain * (domain - 1);
       } else {
         /* 单层 MoE 参数量 ÷ EP（EP 子域内只含本域的专家权重）× 10⁹ × dtype */
@@ -1086,6 +1223,10 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     renderCommCol("a", computeComm("ep"));
     renderCommCol("f", computeComm("fsdp"));
     renderCommCol("e", computeComm("efsdp"));
+    [["f","fsdp"],["e","efsdp"]].forEach(function(pair) {
+      var rs=computeComm(pair[1], "rs");
+      $("comm-"+pair[0]+"-time-sub").textContent = "AG 单次估算；RS："+fmt(rs.recvTotalMB/1024,3)+" GiB / "+fmtTime(rs.commTimeS);
+    });
   }
 
   /* 渲染清单列表；total 为本清单合计，用于计算各项占比；行可自带 fmt 定制数值格式 */
@@ -1127,6 +1268,7 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
      "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype", "util"].forEach(function (k) {
       $(k).value = v[k];
     });
+    ["paramBytes", "gradBytes", "optimizerBytes", "swapOptimizerResidentGB", "swapActivationResidentGB", "quantCacheGB", "otherWorkspaceGB", "microBatch", "prefetchUnits", "rsDtype", "computePrecision"].forEach(function(k){ $(k).value = v[k] !== undefined ? v[k] : (k === "rsDtype" ? (v.fsdpDtype || 2) : DEFAULT[k]); });
     $("recompute").checked = !!v.recompute;
     $("swap").checked = !!v.swap;
     $("swapact").checked = !!v.swapact;
@@ -1194,13 +1336,23 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
       superBW:   n(nw, ["superBW"]),
       superSize: n(nw, ["superSize"]),
       interBW:   n(nw, ["interBW"]),
-      fsdpDtype: n(nw, ["fsdpDtype"]),
+      fsdpDtype: n(nw, ["allGatherDtype", "fsdpDtype"]),
+      rsDtype: n(nw, ["reduceScatterDtype", "rsDtype", "fsdpDtype"]),
       util:      n(nw, ["util", "bandwidthUtil"]),
       recompute: b(o, ["recompute"], true),
       swap:      b(o, ["swapOptimizer", "swap"], false),
       swapact:   b(o, ["swapActivation", "swapact"], false)
     };
+    var mem = cfg.memory && typeof cfg.memory === "object" ? cfg.memory : cfg;
+    ["paramBytes", "gradBytes", "optimizerBytes", "swapOptimizerResidentGB", "swapActivationResidentGB", "quantCacheGB", "otherWorkspaceGB", "microBatch", "prefetchUnits"].forEach(function(k){ v[k] = n(mem,[k]); if(v[k] === null) v[k]=DEFAULT[k]; });
+    v.computePrecision = pick(mem,["computePrecision"],"bf16");
+    if(["bf16","mxfp8"].indexOf(v.computePrecision)<0) return null;
     var bad = false, i;
+    ["paramBytes", "gradBytes", "optimizerBytes", "swapOptimizerResidentGB", "swapActivationResidentGB", "quantCacheGB", "otherWorkspaceGB", "microBatch", "prefetchUnits"].forEach(function(k){ if(v[k]<0) bad=true; });
+    if([1,2,4].indexOf(v.paramBytes)<0 || [1,2,4].indexOf(v.gradBytes)<0 || v.microBatch<1) bad=true;
+    if(v.rsDtype===null) v.rsDtype=4;
+    if(v.fsdpDtype!==null && [1,2,4].indexOf(v.fsdpDtype)<0) bad=true;
+    if([1,2,4].indexOf(v.rsDtype)<0) bad=true;
     ["attn", "exp", "nExp", "layers", "fsdp", "ep", "efsdp", "cp"].forEach(function (k) {
       if (v[k] === null) bad = true;
     });
@@ -1249,7 +1401,7 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     }
     return {
       name: name,
-      version: 1,
+      version: 2,
       model: {
         attnB: num("attn"), expertB: num("exp"), numExperts: int("nExp"),
         layers: int("layers"), seqLen: int("seqLen"), hiddenSize: int("hidden"),
@@ -1260,8 +1412,9 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
       network: { intraBW: num("intraBW"), intraSize: int("intraSize"),
                  superBW: num("superBW"), superSize: int("superSize"),
                  interBW: num("interBW"),
-                 fsdpDtype: num("fsdpDtype"),
+                 fsdpDtype: num("fsdpDtype"), allGatherDtype: num("fsdpDtype"), reduceScatterDtype: num("rsDtype"),
                  util: num("util") },
+      memory: Object.assign({}, ["paramBytes", "gradBytes", "optimizerBytes", "swapOptimizerResidentGB", "swapActivationResidentGB", "quantCacheGB", "otherWorkspaceGB", "microBatch", "prefetchUnits"].reduce(function(o,k){o[k]=num(k);return o;}, {}), {computePrecision:$("computePrecision").value}),
       options: { recompute: checked("recompute"), swapOptimizer: checked("swap"), swapActivation: checked("swapact") }
     };
   }
@@ -1294,6 +1447,7 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
                 "fsdp", "ep", "efsdp", "cp", "hbm",
                 "intraBW", "intraSize", "superBW", "superSize", "interBW", "fsdpDtype", "util",
                 "recompute", "swap", "swapact"];
+  INPUTS = INPUTS.concat(["paramBytes", "gradBytes", "optimizerBytes", "swapOptimizerResidentGB", "swapActivationResidentGB", "quantCacheGB", "otherWorkspaceGB", "microBatch", "prefetchUnits", "rsDtype", "computePrecision"]);
   INPUTS.forEach(function (id) {
     var el = $(id);
     el.addEventListener("input", function () { presetToCustom(); compute(); });
@@ -1357,6 +1511,26 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
     });
   }
 
+
+  // Frozen observations, not constants in the general capacity formulas.
+  var SNAPSHOT_REFERENCE = {"bf16":{"peak":{"bytes":51698029568,"index":32968,"categories":{"unattributed":3120110592,"parameter_shard":13647906816,"model_activation_or_operator_workspace":17163451392,"optimizer_state_or_workspace":512,"megamoe_redispatch_or_saved_activation":398582272,"fsdp_allgather_buffer":3791444992,"fsdp_unsharded_parameter":3202624000,"fsdp_reduce_buffer":9096395776,"uam_restore_or_buffer":1277513216}},"active_peak_bytes":54886066176,"end_allocated_bytes":13701366784,"end_active_bytes":13701366784,"category_independent_peaks":{"unattributed":6373224448,"parameter_shard":13647906816,"model_activation_or_operator_workspace":19284394496,"optimizer_state_or_workspace":14211668992,"megamoe_redispatch_or_saved_activation":1920906752,"fsdp_allgather_buffer":5876472832,"fsdp_unsharded_parameter":3250617344,"fsdp_reduce_buffer":17177781760,"uam_restore_or_buffer":2051709952},"event_count":82832,"prefix_events":18,"end_state_exact":true,"allocator":{"allocated_bytes.all.current":13701366784,"allocated_bytes.all.peak":51698029568,"active_bytes.all.current":13701366784,"active_bytes.all.peak":54886066176,"reserved_bytes.all.current":75115790336,"reserved_bytes.all.peak":75115790336,"inactive_split_bytes.all.current":0,"num_alloc_retries":0,"num_ooms":0},"allocated_peak_error_bytes":0,"active_peak_error_bytes":0,"snapshot_workspace_segment_bytes":750780416,"allocator_reserved_bytes":75115790336,"reserved_error_bytes":0,"source_snapshot_sha256":"fd93fcfe2d186c3a6e758064030188a09d7f4e06306c3fc2dca5b09d8c5d6965","parameter_dtypes":{"torch.float32":932},"parameter_unique_storage_bytes":13647800796,"physical_observed_max_mib_by_rank":[80389,80269,80309,80348,80329,80388,80347,80347],"physical_sample_count":17,"physical_scope":"npu-smi whole-device samples over the run, approximately 10 s; not a continuous or step-12 peak"},"mxfp8":{"peak":{"bytes":52026780160,"index":82295,"categories":{"unattributed":2547588096,"parameter_shard":13647906816,"model_activation_or_operator_workspace":15531867136,"optimizer_state_or_workspace":512,"megamoe_output_or_workspace":396362240,"fsdp_allgather_buffer":3791444992,"fsdp_unsharded_parameter":3202624000,"projection_mxfp8_quantization":178421760,"projection_mxfp8_matmul_output":2074083328,"megamoe_redispatch_or_saved_activation":2211840,"expert_mxfp8_quantization":0,"fsdp_reduce_buffer":9096395776,"uam_restore_or_buffer":1557873664}},"active_peak_bytes":55629143552,"end_allocated_bytes":13701358592,"end_active_bytes":13701358592,"category_independent_peaks":{"unattributed":6373224448,"parameter_shard":13647906816,"model_activation_or_operator_workspace":16713286144,"optimizer_state_or_workspace":14211668992,"megamoe_output_or_workspace":2019345920,"fsdp_allgather_buffer":5876472832,"fsdp_unsharded_parameter":3250617344,"projection_mxfp8_quantization":1079181312,"projection_mxfp8_matmul_output":3256745984,"megamoe_redispatch_or_saved_activation":544702464,"expert_mxfp8_quantization":589037568,"fsdp_reduce_buffer":17177781760,"uam_restore_or_buffer":2461042688},"event_count":150992,"prefix_events":18,"end_state_exact":true,"allocator":{"allocated_bytes.all.current":13701358592,"allocated_bytes.all.peak":52026780160,"active_bytes.all.current":13701358592,"active_bytes.all.peak":55629143552,"reserved_bytes.all.current":76954992640,"reserved_bytes.all.peak":76954992640,"inactive_split_bytes.all.current":0,"num_alloc_retries":0,"num_ooms":0},"allocated_peak_error_bytes":0,"active_peak_error_bytes":0,"snapshot_workspace_segment_bytes":549453824,"allocator_reserved_bytes":76954992640,"reserved_error_bytes":0,"source_snapshot_sha256":"afc7758cb8df079b118f7a0216fc3a3bc202f58d9f32f954014f3ebbc64197dc","parameter_dtypes":{"torch.float32":932},"parameter_unique_storage_bytes":13647800796,"physical_observed_max_mib_by_rank":[81395,81415,81736,81636,81577,81254,81493,81433],"physical_sample_count":16,"physical_scope":"npu-smi whole-device samples over the run, approximately 10 s; not a continuous or step-12 peak"}};
+  function renderSnapshotReference() {
+    var cols=[['allocated 峰值',function(r){return r.peak.bytes;}],
+      ['active 峰值（含异步等待释放）',function(r){return r.active_peak_bytes;}],
+      ['allocator reserved 峰值',function(r){return r.allocator['reserved_bytes.all.peak'];}],
+      ['设备物理占用采样最大值（rank0，整段运行）',function(r){return r.physical_observed_max_mib_by_rank[0]*1048576;}]];
+    var h='<table><thead><tr><th>口径</th><th>BF16</th><th>Full MXFP8</th></tr></thead><tbody>';
+    cols.forEach(function(c){h+='<tr><td>'+c[0]+'</td><td>'+fmtGB(c[1](SNAPSHOT_REFERENCE.bf16)/1073741824)+'</td><td>'+fmtGB(c[1](SNAPSHOT_REFERENCE.mxfp8)/1073741824)+'</td></tr>';});
+    $('snapshot-metrics').innerHTML=h+'</tbody></table>';
+    $('snapshot-note').textContent='固定八卡配置：FSDP8 / EP2 / EFSDP4，31 主层 + 1 MTP，6 路由专家，seq4096，MBS1，UAM + Muon。两组参数 FP32 / AllGather BF16 / ReduceScatter FP32。前三项是 rank0 第12步窗口；物理占用约10秒采样，不能据此计算同一时刻差额。计算精度不会自动改变存储或通信精度。实测配置中的 act 和驻留输入为0表示尚未建模，容量总和不能替代上表实测峰值。';
+    var cats=Object.keys(SNAPSHOT_REFERENCE.bf16.peak.categories);
+    Object.keys(SNAPSHOT_REFERENCE.mxfp8.peak.categories).forEach(function(k){if(cats.indexOf(k)<0)cats.push(k);});
+    h='<table><thead><tr><th>调用栈分类（可能包含工作区）</th><th>BF16 GiB</th><th>MXFP8 GiB</th></tr></thead><tbody>';
+    cats.forEach(function(k){h+='<tr><td>'+k+'</td><td>'+fmt((SNAPSHOT_REFERENCE.bf16.peak.categories[k]||0)/1073741824,3)+'</td><td>'+fmt((SNAPSHOT_REFERENCE.mxfp8.peak.categories[k]||0)/1073741824,3)+'</td></tr>';});
+    $('snapshot-categories').innerHTML=h+'</tbody></table>';
+  }
+  renderSnapshotReference();
+
   setDefaults();
 
   /* ---------- 从 DeepSeekV4 页同步（一次性消费 localStorage 桥接） ---------- */
@@ -1374,6 +1548,7 @@ Layer Input (GiB) = SwapActivation=True ? 0 : 序列长度 × hidden size × 层
         if (typeof dsync.moeHidden === "number") $("moeHidden").value = dsync.moeHidden;
         if (typeof dsync.hidden === "number") $("hidden").value = dsync.hidden;
         if (typeof dsync.seqLen === "number") $("seqLen").value = dsync.seqLen;
+        if (typeof dsync.microBatch === "number") $("microBatch").value = dsync.microBatch;
         presetToCustom();
         compute();
         SYNC_APPLIED = true;
