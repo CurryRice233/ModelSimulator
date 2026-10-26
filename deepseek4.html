@@ -485,7 +485,7 @@ expert_fc1 = s·b·k·(2·fe)·2B；expert_fc2 = s·b·k·fe·2B；shared_fc1 = 
        并携带结构字段，保证主界面与 v4pro 口径一致（层数/专家数/维度/序列长度） */
     LAST = {
       attn: attnB + mhcB, exp: exB, act: perLayerDyn,   /* 统一按 GiB（1024³）口径，不再换算 GiB */
-      layers: Lm + Ld, nExp: nr, topk: k, moeHidden: fe, hidden: h, seqLen: s
+      layers: Lm + Ld, nExp: nr, topk: k, moeHidden: fe, hidden: h, seqLen: s, microBatch: b
     };
 
     /* ---------- KPI ---------- */

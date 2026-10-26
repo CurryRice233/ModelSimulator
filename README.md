@@ -20,12 +20,13 @@ python3 -m http.server 8017 --directory .
 桌面端可拖动右侧参数面板左边缘（蓝色竖条）调整面板宽度（300–620px）；窄窗口（<1080px）下
 面板自动回到顶部流式布局，拖拽不可用。显存明细（集群/单卡）与通信耗时对比均在大卡片内并排展示。
 
-回归测试（可选，需要 Node.js）：
+回归测试（需要 Node.js；快照测试需要 Python 3）：
 
 ```bash
 node tests/verify_mem.js      # 主仿真器（显存 + 通信）
 node tests/verify_dsv4.js     # DeepSeekV4 参数量/动态激活显存页
 node tests/verify_sync.js     # 同步桥接链路（写入/跳转/消费/fetch 不覆盖）
+python tests/verify_snapshot.py # 存储去重、异步释放、生命周期峰值及实测数据
 ```
 
 ## 配套页面：DeepSeekV4 参数量与动态激活显存
@@ -49,7 +50,7 @@ node tests/verify_sync.js     # 同步桥接链路（写入/跳转/消费/fetch 
   峰值各保有一份。
 
 "同步到仿真器"：页面右上角"⇢ 同步到仿真器"按钮将单层 DSA Attn 参数量、单个专家参数量、
-单层动态激活（GiB）以及结构字段（MoE 层数 / 路由专家数 / TopK / f_e / hidden / seq_len）
+单层动态激活（GiB）、micro batch 以及结构字段（MoE 层数 / 路由专家数 / TopK / f_e / hidden / seq_len）
 写入 localStorage 后**自动跳转**至主仿真器 index.html；主界面一次性应用全部字段（应用后清除），
 并在顶部配置消息区完整列出修改了哪些输入；外部预设 fetch 完成后不会覆盖已同步的输入。
 
@@ -57,38 +58,20 @@ node tests/verify_sync.js     # 同步桥接链路（写入/跳转/消费/fetch 
 本页默认 topk=30（与参数量表 v4pro 一致），router 按 n_router 计，故与显存表不完全相同的输入
 下数值略有差异（输入对齐后一致）。
 
-## 当前建模内容（v0.1 · 显存）
+## 内存建模口径（配置版本 2）
 
-### 输入
-- 模型参数：单层 Attention 参数量（B）、单个 MoE 专家参数量（B）、专家数量、层数、
-  序列长度、Hidden Size、MoE Hidden Size、TopK（EP Alltoall 用）、单层动态激活（GiB）
-- 并行方式：FSDP、EP、EFSDP、CP、单卡 HBM 容量（仅用于占用率展示）、
-  Recompute（勾选）、SwapOptimizer（勾选，开启后单卡优化器 = 0）、
-  SwapActivation（勾选，开启后 Layer Input = 0）
-- 单个完整 DP 域卡数 = MAX(FSDP × CP, EP × EFSDP × CP)（FSDP 为 Attention 权重切分度；
-  取 Attention 域（FSDP×CP）与 MoE 域（EP×EFSDP×CP）两者较大者，卡数不再额外乘入）
-- 通信网络（三层拓扑）：机内带宽（GiB/s）/ 机内大小、超节点带宽（GiB/s）/ 超节点大小、
-  超节点间带宽（GiB/s）、FSDP 通信 dtype（下拉：FP32=4 / BF16=2（默认） / FP8=1 字节，Allgather/ReduceScatter 载荷精度）、带宽利用率（默认 0.8，算法带宽 = 理论带宽 × 利用率）
+参数存储、梯度存储、优化器状态、计算精度、AllGather 与 ReduceScatter 精度分别配置。
+主计算器输出各组件共同驻留假设下的容量估算；它不等于实测训练峰值。
+交换到 Host 后通过显式输入计入驻留状态、预取和工作区，零表示未建模。
+Layer Input 使用 seq × microBatch × hidden × layers / CP × 2 / 1024³。
+动态激活输入已经是当前 micro batch 的 GiB，不再重复乘 MBS。
 
-### 输出（全部实时计算）
-| 项 | 公式 |
-| --- | --- |
-| 单个完整 DP 域卡数 | MAX(FSDP × CP, EP × EFSDP × CP) |
-| 总模型权重 FP32 (GiB) | (单层 Attention 参数量 + 单个专家参数量 × 专家数量) × 层数 × (4×10⁹/1024³) |
-| 总模型梯度 FP32 (GiB) | = 总模型权重 |
-| 总优化器 2×FP32 (GiB) | = 总模型权重 × 2（集群口径不随 SwapOptimizer 变化） |
-| 总静态显存 (GiB) | 权重 + 梯度 + 优化器 |
-| 总动态激活 (GiB) | 单层动态激活 / CP × 层数（输入即 GiB，无需换算） |
-| 单卡模型权重 FP32 (GiB) | (单层 Attention 参数量 / FSDP + (单个专家参数量 × 专家数量) / (EP × EFSDP)) × 层数 × (4×10⁹/1024³) |
-| 单卡模型梯度 / 优化器 | = 单卡权重；= 单卡权重 × 2；**SwapOptimizer=True 时优化器 = 0 GiB（交换出卡）** |
-| 单卡动态激活 (GiB) | Recompute=True → 总动态激活 / 层数；否则 = 总动态激活 |
-| 单层预取权重 BF16 (GiB) | (单层 Attention 参数量 + 单个专家参数量 × (专家数量/EP)) × (2×10⁹/1024³) |
-| 单层临时梯度 FP32 (GiB) | = 单层预取权重 BF16 × 2 |
-| Layer Input (GiB) | SwapActivation=True → 0；否则 序列长度 × Hidden Size × 层数 × 2（BF16） / 1024³ |
-| 单卡总显存 (GiB) | 权重 + 梯度 + 优化器 + 动态激活 + Layer Input + 预取权重 + 临时梯度 |
+真实峰值按实际 storage 和生命周期去重重建；分类各自独立峰值不能相加。
+页面的 DeepSeek4 UAM 实测区分别列出 allocated、active、reserved 与物理采样口径，
+并保留未归因项。详情及冻结配置见 [快照校准报告](docs/snapshot-memory-correction.md)。
 
-单位换算约定：参数量 B → FP32 显存 GiB：**B × 10⁹ × 4 / 1024³ ≈ B × 3.7253 GiB**（系数在代码中为
-`GB_PER_B`，`BYTES_PER_PARAM` 可扩展 BF16(2)/FP8(1)）。
+两个新增 snapshot 预设只固定经核对的模型总量、并行与精度，激活及驻留待校准。
+环境相关实测值单独列示，不代入通用公式。FP8 通信估算尚未计 scale 和 padding。
 
 ## 通信耗时（EP Alltoall · 均衡，v0.2）
 
@@ -133,9 +116,9 @@ Attention 切分口径一致，可反映 Allgather（正向取参）/ ReduceScat
 | 瓶颈层 | 机内流量/机内带宽、超节点内流量/超节点带宽、超节点间流量/超节点间带宽 中耗时最大者 |
 
 说明：机内流量采用**余量法**（总流量 − 超节点内 − 超节点间，下限 0），三层占比之和恒 = 100%。
-DeepSeekV4 默认（FSDP=2048，dtype=2 BF16，机内 100 GiB/s）：总接受数据 574 MB（0.6 GiB，每份 287 KB）、
-三层流量 1,920 / 126 / 1 份（占比 93.8% / 6.2% / 0%）、算法带宽 82.58 GiB/s（×0.8 利用率）、通信耗时 6.786 ms、
-瓶颈层=机内（1,920 份 · 100 GiB/s）。
+DeepSeekV4 默认（FSDP=2048，AG dtype=2 BF16，RS dtype=4 FP32，机内 100 GiB/s）：总接受数据 574 MB（0.6 GiB，每份 287 KB）、
+三层流量 1,792 / 254 / 1 份（占比 87.5% / 12.4% / 0%）、算法带宽 85.34 GiB/s（×0.8 利用率）、通信耗时 6.567 ms、
+瓶颈层=机内（1,792 份 · 100 GiB/s）。
 
 ## 通信耗时（EFSDP Allgather / ReduceScatter · 分层，v0.2）
 
@@ -165,10 +148,10 @@ DeepSeekV4 默认（EFSDP=16，EP=128，dtype=2 BF16）：有效超节点 1024/1
 
 右侧面板顶部"💾 配置管理"支持：
 
-- **预设选择**：下拉选择预设（当前含 `DeepSeekV4 10T(预估)`），选中即应用参数；
+- **预设选择**：下拉选择预设（含 `DeepSeekV4 10T(预估)` 和两个 BF16/MXFP8 快照配置），选中即应用参数；
   手动修改任意输入后自动切回"自定义配置"。
 - **导出配置**：将当前表单值导出为 JSON 文件下载。
-- **文件导入**：选择本地 JSON 文件导入（支持嵌套 `{model, parallel, network, options}` 与扁平两种格式）。
+- **文件导入**：选择本地 JSON 文件导入（支持嵌套 `{model, parallel, network, memory, options}` 与扁平两种格式）。
 - **粘贴导入**：点击"📋 粘贴导入"在弹窗中直接粘贴 JSON 文本后导入（与文件导入同一套校验/归一化逻辑）。
 
 导出 JSON 格式示例：
@@ -176,10 +159,11 @@ DeepSeekV4 默认（EFSDP=16，EP=128，dtype=2 BF16）：有效超节点 1024/1
 ```json
 {
   "name": "DeepSeekV4 10T(预估)",
-  "version": 1,
+  "version": 2,
   "model":  { "attnB": 0.301, "expertB": 0.066, "numExperts": 2048, "layers": 61, "seqLen": 2048, "hiddenSize": 7168, "moeHidden": 3072, "topk": 30, "activationGB": 5.21 },
   "parallel": { "fsdp": 2048, "ep": 128, "efsdp": 16, "cp": 1, "hbmGB": 96 },
-  "network": { "intraBW": 100, "intraSize": 16, "superBW": 200, "superSize": 1024, "interBW": 50, "fsdpDtype": 2, "util": 0.8 },
+  "network": { "intraBW": 100, "intraSize": 8, "superBW": 200, "superSize": 1024, "interBW": 50, "fsdpDtype": 2, "allGatherDtype": 2, "reduceScatterDtype": 4, "util": 0.8 },
+  "memory": { "paramBytes": 4, "gradBytes": 4, "optimizerBytes": 8, "microBatch": 1, "prefetchUnits": 1, "computePrecision": "bf16", "swapOptimizerResidentGB": 0, "swapActivationResidentGB": 0, "quantCacheGB": 0, "otherWorkspaceGB": 0 },
   "options": { "recompute": true, "swapOptimizer": false, "swapActivation": false }
 }
 ```
@@ -187,7 +171,7 @@ DeepSeekV4 默认（EFSDP=16，EP=128，dtype=2 BF16）：有效超节点 1024/1
 内置预设 DeepSeekV4 10T(预估)：单层 Attention 0.301B、单专家 0.066B、专家 2048、层数 61、
 序列长度 2048、Hidden Size 7168、MoE Hidden Size 3072、TopK 30、单层动态激活 5.21GB、
 FSDP 2048 / EP 128 / EFSDP 16 / CP 1、Recompute=True、SwapOptimizer=False、SwapActivation=False、单卡 HBM 96GB
-（总参数 ≈ 8.26T，卡数 2048）；网络：机内 100GB/s×16、超节点 200GB/s×1024、
+（总参数 ≈ 8.26T，卡数 2048）；网络：机内 100GiB/s×8、超节点 200GB/s×1024、
 超节点间 50GB/s、FSDP dtype=BF16（默认，下拉可按 FP32/FP8 切换）。页面初始示例即此预设参数。
 预设配置抽离在 `presets.json`（主仿真器）与 `dsv4_presets.json`（DeepSeekV4 结构页），
 页面加载时 fetch 覆盖内置 fallback 并重建预设下拉；修改预设只需改 JSON。
@@ -199,3 +183,4 @@ Layer Input 按 BF16（2 字节/元素）折算，EP Alltoall / FSDP Allgather d
 - SwapOptimizer 显存交换策略建模
 - TopK 对动态激活的影响
 - 精度扩展（BF16/FP8）与更多预设
+旧配置仅提供 fsdpDtype 时映射到 AG 与 RS；新字段优先。计算精度不自动改变通信精度。

@@ -1,0 +1,101 @@
+{
+  "sources": {
+    "native": "97919718d2151dd972956c80b3b114ae25126fba",
+    "sources/FSDPTurbo": "630f391efdbf7f85fe0fc4c9add63b484722d562",
+    "sources/MindSpeed-LLM": "4cf1c7ddb5e7ed2aece7cf9bbd93fe4210af3f34",
+    "native/3rdparty/shmem": "8f4b4791b06e8f55fb6d2ce00e1d3c2f100c344f"
+  },
+  "window_step": 12,
+  "total_steps": 15,
+  "byte_budget": 2000000000,
+  "arms": {
+    "bf16": {
+      "rank_count": 8,
+      "all_pass": true,
+      "steady_allocated_peaks_bytes": [
+        51707468288,
+        51707468288,
+        51707468288,
+        51707468288,
+        51707468288,
+        51707468288,
+        51707468288,
+        51707468288
+      ],
+      "supplement_required": false,
+      "loaded_libraries": {
+        "libascend_deepep_kernels.so": "73c91a90ac9f38f34d021a41aacf8033a75cc13300cabb50b18b31daf99b3f2e",
+        "_C.cpython-312-aarch64-linux-gnu.so": "73e2750f52dc0e1a3582ba068771e1c6b451b8a48368e2e0f8e3285a2c29de40",
+        "libascend_deepep_mega_moe_bf16.so": "4c38486b8c95faaba992ceab90a86d11f27828c4f1ab3d2016b834102d105bbd",
+        "aclshmem_bootstrap_uid.so": "c8970a2fb9e2bdc5d9a61a331af5160262e3e4ceb17ddfd5e85d62401a5e7396",
+        "libshmem.so": "d82c2c65a6fb1d45f582c023d6c947ec7a4f15800143d7c1ebc64f792d13d8a1",
+        "aclshmem_bootstrap_config_store.so": "4780c750a1231f17fa264e8e6e5be49e220eaad1bd269f28745d7ece8babbc73",
+        "libshmem_utils.so": "a93639c41628b3510984c39fba3f573450893d3d836ed43021c2f15002a0aa31",
+        "libtorch_npu.so": "83fb9a0eb249aef6bca7f8463047fcb4d3062cc4849f17ddf31a5e050c838842",
+        "_posixshmem.cpython-312-aarch64-linux-gnu.so": "f197f376520eeeb8e81a6829ae9f8cbb06127ea0d296beb5bbe28365f51fb0f1"
+      },
+      "insight_parser": "PASS",
+      "insight_memscope_ui": "PASS",
+      "allocated_peak_replay_error_bytes": 0,
+      "active_peak_replay_error_bytes": 0,
+      "reserved_reconciliation_error_bytes": 0,
+      "physical_sampling": "whole-device ~10s; not every step and not a continuous peak"
+    },
+    "mxfp8": {
+      "rank_count": 8,
+      "all_pass": true,
+      "steady_allocated_peaks_bytes": [
+        52036218880,
+        52036218880,
+        52036218880,
+        52036218880,
+        52036218880,
+        52036218880,
+        52036218880,
+        52036218880
+      ],
+      "supplement_required": false,
+      "loaded_libraries": {
+        "libascend_deepep_mega_moe_train_w8a8.so": "62e88819da99b4bcabfb19f7ca7d44b4063a08ed41131013cb990d756081e7af",
+        "libshmem.so": "d82c2c65a6fb1d45f582c023d6c947ec7a4f15800143d7c1ebc64f792d13d8a1",
+        "aclshmem_bootstrap_config_store.so": "4780c750a1231f17fa264e8e6e5be49e220eaad1bd269f28745d7ece8babbc73",
+        "libshmem_utils.so": "a93639c41628b3510984c39fba3f573450893d3d836ed43021c2f15002a0aa31",
+        "libtorch_npu.so": "83fb9a0eb249aef6bca7f8463047fcb4d3062cc4849f17ddf31a5e050c838842",
+        "_posixshmem.cpython-312-aarch64-linux-gnu.so": "f197f376520eeeb8e81a6829ae9f8cbb06127ea0d296beb5bbe28365f51fb0f1"
+      },
+      "insight_parser": "PASS",
+      "insight_memscope_ui": "PASS",
+      "allocated_peak_replay_error_bytes": 0,
+      "active_peak_replay_error_bytes": 0,
+      "reserved_reconciliation_error_bytes": 0,
+      "physical_sampling": "whole-device ~10s; not every step and not a continuous peak"
+    }
+  },
+  "raw_snapshots": [
+    {
+      "file": "results/snapshot-bf16/rank-0-step12-end.pickle",
+      "bytes": 7296502,
+      "sha256": "fd93fcfe2d186c3a6e758064030188a09d7f4e06306c3fc2dca5b09d8c5d6965"
+    },
+    {
+      "file": "results/snapshot-bf16/rank-0-step12-start.pickle",
+      "bytes": 221308,
+      "sha256": "c3dd1aa01f0a431f2a8120eb5106ffcfe1fdd8e414303f0415d25b7101df2d91"
+    },
+    {
+      "file": "results/snapshot-mxfp8/rank-0-step12-end.pickle",
+      "bytes": 14006482,
+      "sha256": "afc7758cb8df079b118f7a0216fc3a3bc202f58d9f32f954014f3ebbc64197dc"
+    },
+    {
+      "file": "results/snapshot-mxfp8/rank-0-step12-start.pickle",
+      "bytes": 222342,
+      "sha256": "3da655bb72c6fb2874972dd2936c1a55d0d2af5d95ff49d199a1ed6a9574a2c2"
+    }
+  ],
+  "raw_bytes_total": 21746634,
+  "archive": {
+    "file": "snapshot-evidence.tar.xz",
+    "sha256": "67bbbb0988a7123e7333a18102b683b61217c0029e489821cca6a6b07eb43c6d"
+  }
+}

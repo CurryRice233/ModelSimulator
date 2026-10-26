@@ -1,0 +1,144 @@
+{
+  "bf16": {
+    "peak": {
+      "bytes": 51698029568,
+      "index": 32968,
+      "categories": {
+        "unattributed": 3120110592,
+        "parameter_shard": 13647906816,
+        "model_activation_or_operator_workspace": 17163451392,
+        "optimizer_state_or_workspace": 512,
+        "megamoe_redispatch_or_saved_activation": 398582272,
+        "fsdp_allgather_buffer": 3791444992,
+        "fsdp_unsharded_parameter": 3202624000,
+        "fsdp_reduce_buffer": 9096395776,
+        "uam_restore_or_buffer": 1277513216
+      }
+    },
+    "active_peak_bytes": 54886066176,
+    "end_allocated_bytes": 13701366784,
+    "end_active_bytes": 13701366784,
+    "category_independent_peaks": {
+      "unattributed": 6373224448,
+      "parameter_shard": 13647906816,
+      "model_activation_or_operator_workspace": 19284394496,
+      "optimizer_state_or_workspace": 14211668992,
+      "megamoe_redispatch_or_saved_activation": 1920906752,
+      "fsdp_allgather_buffer": 5876472832,
+      "fsdp_unsharded_parameter": 3250617344,
+      "fsdp_reduce_buffer": 17177781760,
+      "uam_restore_or_buffer": 2051709952
+    },
+    "event_count": 82832,
+    "prefix_events": 18,
+    "end_state_exact": true,
+    "allocator": {
+      "allocated_bytes.all.current": 13701366784,
+      "allocated_bytes.all.peak": 51698029568,
+      "active_bytes.all.current": 13701366784,
+      "active_bytes.all.peak": 54886066176,
+      "reserved_bytes.all.current": 75115790336,
+      "reserved_bytes.all.peak": 75115790336,
+      "inactive_split_bytes.all.current": 0,
+      "num_alloc_retries": 0,
+      "num_ooms": 0
+    },
+    "allocated_peak_error_bytes": 0,
+    "active_peak_error_bytes": 0,
+    "snapshot_workspace_segment_bytes": 750780416,
+    "allocator_reserved_bytes": 75115790336,
+    "reserved_error_bytes": 0,
+    "source_snapshot_sha256": "fd93fcfe2d186c3a6e758064030188a09d7f4e06306c3fc2dca5b09d8c5d6965",
+    "parameter_dtypes": {
+      "torch.float32": 932
+    },
+    "parameter_unique_storage_bytes": 13647800796,
+    "physical_observed_max_mib_by_rank": [
+      80389,
+      80269,
+      80309,
+      80348,
+      80329,
+      80388,
+      80347,
+      80347
+    ],
+    "physical_sample_count": 17,
+    "physical_scope": "npu-smi whole-device samples over the run, approximately 10 s; not a continuous or step-12 peak"
+  },
+  "mxfp8": {
+    "peak": {
+      "bytes": 52026780160,
+      "index": 82295,
+      "categories": {
+        "unattributed": 2547588096,
+        "parameter_shard": 13647906816,
+        "model_activation_or_operator_workspace": 15531867136,
+        "optimizer_state_or_workspace": 512,
+        "megamoe_output_or_workspace": 396362240,
+        "fsdp_allgather_buffer": 3791444992,
+        "fsdp_unsharded_parameter": 3202624000,
+        "projection_mxfp8_quantization": 178421760,
+        "projection_mxfp8_matmul_output": 2074083328,
+        "megamoe_redispatch_or_saved_activation": 2211840,
+        "expert_mxfp8_quantization": 0,
+        "fsdp_reduce_buffer": 9096395776,
+        "uam_restore_or_buffer": 1557873664
+      }
+    },
+    "active_peak_bytes": 55629143552,
+    "end_allocated_bytes": 13701358592,
+    "end_active_bytes": 13701358592,
+    "category_independent_peaks": {
+      "unattributed": 6373224448,
+      "parameter_shard": 13647906816,
+      "model_activation_or_operator_workspace": 16713286144,
+      "optimizer_state_or_workspace": 14211668992,
+      "megamoe_output_or_workspace": 2019345920,
+      "fsdp_allgather_buffer": 5876472832,
+      "fsdp_unsharded_parameter": 3250617344,
+      "projection_mxfp8_quantization": 1079181312,
+      "projection_mxfp8_matmul_output": 3256745984,
+      "megamoe_redispatch_or_saved_activation": 544702464,
+      "expert_mxfp8_quantization": 589037568,
+      "fsdp_reduce_buffer": 17177781760,
+      "uam_restore_or_buffer": 2461042688
+    },
+    "event_count": 150992,
+    "prefix_events": 18,
+    "end_state_exact": true,
+    "allocator": {
+      "allocated_bytes.all.current": 13701358592,
+      "allocated_bytes.all.peak": 52026780160,
+      "active_bytes.all.current": 13701358592,
+      "active_bytes.all.peak": 55629143552,
+      "reserved_bytes.all.current": 76954992640,
+      "reserved_bytes.all.peak": 76954992640,
+      "inactive_split_bytes.all.current": 0,
+      "num_alloc_retries": 0,
+      "num_ooms": 0
+    },
+    "allocated_peak_error_bytes": 0,
+    "active_peak_error_bytes": 0,
+    "snapshot_workspace_segment_bytes": 549453824,
+    "allocator_reserved_bytes": 76954992640,
+    "reserved_error_bytes": 0,
+    "source_snapshot_sha256": "afc7758cb8df079b118f7a0216fc3a3bc202f58d9f32f954014f3ebbc64197dc",
+    "parameter_dtypes": {
+      "torch.float32": 932
+    },
+    "parameter_unique_storage_bytes": 13647800796,
+    "physical_observed_max_mib_by_rank": [
+      81395,
+      81415,
+      81736,
+      81636,
+      81577,
+      81254,
+      81493,
+      81433
+    ],
+    "physical_sample_count": 16,
+    "physical_scope": "npu-smi whole-device samples over the run, approximately 10 s; not a continuous or step-12 peak"
+  }
+}
